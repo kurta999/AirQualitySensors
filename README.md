@@ -8,10 +8,10 @@ Source is made for STM32 NUCLEO L496ZG. The source is not in compilable form yet
 
 ### Drivers included for Air Quality sensors:
 
-BME680 - Pressure, Temperature, Relative Humidity
-SCD30 - CO2 (Pressure and Humidity part is not used, based on my experience, it's deviates too much even when the correct offset is applicede)
-VEML6070 - UV Index
-TCS34725 - RGB Color values in light, CCT and Kelvin
-Honeywell HPMA115S0 - Particle Sensor (pm2.5, pm10)
+BME680 - Pressure, Temperature, Relative Humidity  
+SCD30 - CO2 (Pressure and Humidity part is not used, based on my experience, it's deviates too much even when the correct offset is applicede)  
+VEML6070 - UV Index  
+TCS34725 - RGB Color values in light, CCT and Kelvin  
+Honeywell HPMA115S0 - Particle Sensor (pm2.5, pm10)  
 
 The source code for sensors can be found in freertos.c and in sensors.c. The code is bloat, because this is just a protoype. I didn't have time yet to clean up everything, it just works.
