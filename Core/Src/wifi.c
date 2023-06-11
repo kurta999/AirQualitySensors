@@ -10,6 +10,7 @@
 #include "main.h"
 #include <ESP32/esp32.h>
 #include "user_interface.h"
+#include "newlib_fixes/printf.h"
 
 #include <stdio.h>
 
@@ -120,9 +121,10 @@ uint32_t last_data_sent = 0;
 extern float co2_ppm, temperature, relative_humidity;
 extern float bme680_temp, bme680_hum, bme680_pressure;
 extern uint16_t pm25, pm10;
-extern uint16_t uv;
+extern uint16_t uv_val;
 extern float red, green, blue;
 extern uint16_t colorTemp, lux;
+extern uint32_t bme680_gas_resistance, bme680_timestamp;
 
 char send_buf[192];
 
@@ -137,13 +139,14 @@ void WifiTask(void const * argument)
 
     if(is_wifi_inited)
     {
-      if(osKernelSysTick() - last_data_sent > 3000)
+      if(osKernelSysTick() - last_data_sent > 1500)
       {
         HAL_StatusTypeDef HAL_Status = Esp32_ConnectToServer(&esp32, 4, "TCP", "192.168.0.120", 2005, 0, 0xFF, 0);
         if(HAL_Status == HAL_OK)
         {
-          uint8_t len = snprintf(send_buf, sizeof(send_buf), "MEAS_DATA SCD30: %.4f,%.4f,%.4f BME680: %.4f,%.4f,%.4f HONEYWELL: %d,%d VEML6070: %d TCS: %.4f,%.4f,%.4f,%d,%d\n",
-              temperature, relative_humidity, co2_ppm, bme680_temp, bme680_hum, bme680_pressure, pm25, pm10, uv, red, green, blue, colorTemp, lux);
+            int co = 0;
+          uint8_t len = snprintf(send_buf, sizeof(send_buf), "MEAS_DATA SCD30: %.4f,%.4f,%.4f CO: %d BME680: %.4f,%.4f,%.4f,%d,%d HONEYWELL: %d,%d VEML6070: %d TCS: %.4f,%.4f,%.4f,%d,%d\n",
+              temperature, relative_humidity, co2_ppm, co, bme680_temp, bme680_hum, bme680_pressure, bme680_gas_resistance, bme680_timestamp, pm25, pm10, uv_val, red, green, blue, colorTemp, lux);
 
           HAL_Status = Esp32_SendTcp(&esp32, 4, (uint8_t*)send_buf, len);
         }

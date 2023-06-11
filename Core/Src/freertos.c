@@ -178,7 +178,7 @@ void MX_FREERTOS_Init(void) {
   SensorsHandle = osThreadCreate(osThread(Sensors), NULL);
 
   /* definition and creation of SensorsBme680 */
-  osThreadDef(SensorsBme680, SensorsBme680Task, osPriorityIdle, 0, 256);
+  osThreadDef(SensorsBme680, SensorsBme680Task, osPriorityIdle, 0, 1024);
   SensorsBme680Handle = osThreadCreate(osThread(SensorsBme680), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -278,7 +278,8 @@ void StartDefaultTask(void const * argument)
   for(;;)
   {
     SendPressedKeys();
-    HAL_IWDG_Refresh(&hiwdg);
+    if(hiwdg.Instance)
+        HAL_IWDG_Refresh(&hiwdg);
     osDelay(10);
 #if 0
     if(osKernelSysTick() - last_particle_meas > 10000)

@@ -36,6 +36,7 @@
 #include "wifi.h"
 #include "usart_driver.h"
 #include "device_specific.h"
+#include "honeywell_sensor.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,9 +65,7 @@ void SystemClock_Config(void);
 void PeriphCommonClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
-uint8_t rx_circular_buffer[512];
-uint8_t uart_byte = 0;
-uint16_t uart_recv_cnt = 0;
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -107,7 +106,7 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART2_UART_Init();
-  MX_IWDG_Init();
+  //MX_IWDG_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
   MX_USART3_UART_Init();
@@ -128,14 +127,7 @@ int main(void)
   Wifi_Init();
   HAL_TIM_Base_Start_IT(&htim16);
 
-  uint8_t data1[] = {0x68, 0x01, 0x40, 0x57}; // Enable Auto Send
-  HAL_UART_Transmit(&huart4, data1, sizeof(data1), 100);
-
-  uint8_t data2[] = {0x68, 0x01, 0x01, 0x96}; // Start Particle Measurement
-  HAL_UART_Transmit(&huart4, data2, sizeof(data2), 100);
-
-
-  HAL_UART_Receive_IT(&huart4, &uart_byte, 1);
+  Honeywell_Init();
   //StartDmaConversion();
 
   for(int i = 0; i != 2; i++)
@@ -247,38 +239,19 @@ int __io_putchar(int ch)
   ITM_SendChar(ch);
   return 0;
 }
-uint16_t pm25 = 0;
-uint16_t pm10 = 0;
-uint32_t last_particle_meas_recv = 0;
+
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if(huart->Instance == huart4.Instance)
   {
-    if(++uart_recv_cnt >= sizeof(rx_circular_buffer) || osKernelSysTick() - last_particle_meas_recv > 1000)
-    {
-      uart_recv_cnt = 0;
-      memset(rx_circular_buffer, 0, sizeof(rx_circular_buffer));
-      last_particle_meas_recv = osKernelSysTick();
-    }
-    rx_circular_buffer[uart_recv_cnt] = uart_byte;
-
-    if(uart_recv_cnt >= 12)
-    {
-      for(int i = 0; i != sizeof(rx_circular_buffer); i++)
-      {
-        if(rx_circular_buffer[i] == 'B' && uart_recv_cnt > i + 8)
-        {
-          pm25 = rx_circular_buffer[i + 2] * 256 + rx_circular_buffer[i + 3];
-          pm10 = rx_circular_buffer[i + 6] * 256 + rx_circular_buffer[i + 7];
-          uart_recv_cnt = 0;
-          memset(rx_circular_buffer, 0, sizeof(rx_circular_buffer));
-          break;
-        }
-      }
-    }
-    HAL_UART_Receive_IT(&huart4, &uart_byte, 1);
+      Honeywell_UartRecv(huart);
   }
+}
+
+void _putchar(char character)
+{
+    ITM_SendChar(character);
 }
 /* USER CODE END 4 */
 
