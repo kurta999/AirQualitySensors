@@ -158,7 +158,7 @@ void MX_FREERTOS_Init(void) {
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityRealtime, 0, 384);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of UserInterface */
@@ -266,38 +266,14 @@ void StartDefaultTask(void const * argument)
   /* USER CODE BEGIN StartDefaultTask */
 
   SendInitMessage();
-/*
-  uint8_t data[] = {0x68, 0x01, 0x20, 0x77}; // Disable auto send
-  HAL_UART_Transmit(&huart4, data, sizeof(data), 100);
 
-  osDelay(500);
-  uint8_t data2[] = {0x68, 0x01, 0x01, 0x96}; // Start Particle Measurement
-  HAL_UART_Transmit(&huart4, data2, sizeof(data2), 100);
-*/
   /* Infinite loop */
   for(;;)
   {
     SendPressedKeys();
     if(hiwdg.Instance)
         HAL_IWDG_Refresh(&hiwdg);
-    osDelay(10);
-#if 0
-    if(osKernelSysTick() - last_particle_meas > 10000)
-    {
-      uint8_t data3[] = {0x68, 0x01, 0x04, 0x93}; // Read Particle Measuring Results
-      HAL_UART_Transmit(&huart4, data3, sizeof(data3), 100);
-      HAL_UART_Receive_IT(&huart4, &uart_byte, 1);
-      osDelay(5000);
-      last_particle_meas = osKernelSysTick();
-    }
-    if(rx_circular_buffer[0] == 0x40 && rx_circular_buffer[1] == 0x05 && rx_circular_buffer[2] == 0x04)
-    {
-      pm25 = rx_circular_buffer[3] * 256 + rx_circular_buffer[4];
-      pm10 = rx_circular_buffer[3] * 256 + rx_circular_buffer[4];
-      memset(rx_circular_buffer, 0, sizeof(rx_circular_buffer));
-      uart_recv_cnt = 0;
-    }
-#endif
+    osDelay(1);
   }
   /* USER CODE END StartDefaultTask */
 }

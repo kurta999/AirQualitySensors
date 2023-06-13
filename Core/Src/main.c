@@ -106,7 +106,7 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART2_UART_Init();
-  //MX_IWDG_Init();
+  MX_IWDG_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
   MX_USART3_UART_Init();
@@ -130,7 +130,7 @@ int main(void)
   Honeywell_Init();
   //StartDmaConversion();
 
-  for(int i = 0; i != 2; i++)
+  for(int i = 0; i != 10; i++)
   {
     HAL_Delay(100);
     HAL_GPIO_WritePin(ULED_2_GPIO_Port, ULED_2_Pin, 1);
@@ -294,9 +294,9 @@ void Error_Handler(void)
   /* User can add his own implementation to report the HAL error return state */
   while (1)
   {
-	  for(int i = 0; i != 5; i++)
+	  for(int i = 0; i != 15; i++)
 	  {
-	    HAL_GPIO_WritePin(ULED_3_GPIO_Port, ULED_3_Pin, 0);
+	      HAL_GPIO_WritePin(ULED_3_GPIO_Port, ULED_3_Pin, 0);
 		  HAL_Delay(100);
 		  HAL_GPIO_WritePin(ULED_3_GPIO_Port, ULED_3_Pin, 1);
 		  HAL_Delay(100);

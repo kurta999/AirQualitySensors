@@ -8,7 +8,7 @@ void UI_Init(void);
 typedef struct
 {
   float temp, hum;
-  int co2, voc, pm25, pm10, lux, cct;
+  int co2, uv, pm25, pm10, lux, cct;
 } MeasData_t;
 
 #endif
