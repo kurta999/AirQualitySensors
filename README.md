@@ -18,10 +18,10 @@ The source code for sensors can be found in freertos.c and in sensors.c. The cod
 Pinout can be found in UsbHost.ioc, you have to open the project in STM32CubeIde or the .ioc file in STM32CubeMX.
 
 ### Screenshots
-**Sensors*
+**Sensors**
 
 ![Alt text](/github_screens/sensors.png?raw=true "Sensors")
 
-**Numpad for macros (beside a Corsair K95 18 GKey keyboard)*
+**Numpad for macros (beside a Corsair K95 18 GKey keyboard)**
 
-![Alt text](/github_screens/macros.png?raw=true "Sensors")
+![Alt text](/github_screens/macros.png?raw=true "Macros")
