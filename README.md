@@ -20,8 +20,8 @@ Pinout can be found in UsbHost.ioc, you have to open the project in STM32CubeIde
 ### Screenshots
 **Sensors**
 
-![Alt text](/github_screens/sensors.png?raw=true "Sensors")
+![Alt text](/github_screens/sensors.jpg?raw=true "Sensors")
 
 **Numpad for macros (beside a Corsair K95 18 GKey keyboard)**
 
-![Alt text](/github_screens/macros.png?raw=true "Macros")
+![Alt text](/github_screens/macros.jpg?raw=true "Macros")
