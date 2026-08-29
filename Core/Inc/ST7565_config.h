@@ -1,0 +1,8 @@
+#ifndef ST7565_CONFIG_H
+#define ST7565_CONFIG_H
+
+#define ENABLE_PARTIAL_UPDATE 0
+#define ST7565_STARTBYTES     0
+#define USE_OWN_FONTS         0
+
+#endif /* ST7565_CONFIG_H */

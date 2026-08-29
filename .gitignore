@@ -1,0 +1,53 @@
+# Build products
+/build/
+/Debug/
+/Release/
+/Backup_Debug/
+/Backup_Release/
+/TrueSTUDIO/
+
+# Local firmware configuration (contains credentials)
+/Core/Inc/app_config.local.h
+
+# Legacy local-only/proprietary assets (not part of the open-source build)
+/asdas/
+/libalgobsec.a
+/libalgobsec.lib
+/libs/bsec/
+/libs/Consolas_regular_8pt/
+/libs/st7565_fonts/
+
+# STM32CubeIDE/Eclipse machine-local metadata
+/.metadata/
+/.settings/language.settings.xml
+/.settings/com.st.stm32cube.ide.mcu.sfrview.prefs
+/.externalToolBuilders/
+/.recommenders/
+/.cache-main/
+*.launch.local
+/*.launch
+
+# Visual Studio and VS Code machine-local state
+/.vs/
+/.vscode/ipch/
+*.db
+
+# Editors and operating systems
+*.bak
+*.swp
+*.tmp
+*~
+.DS_Store
+Thumbs.db
+
+# Generated reports and local utilities
+/Graphs/
+/Screenshots/
+/tools/
+/UnitTests/x64/
+commitid.h
+logfile.txt
+output.txt
+struct_in.txt
+struct_out.txt
+settings.ini

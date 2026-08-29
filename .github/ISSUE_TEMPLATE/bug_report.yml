@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a reproducible firmware or build problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include Wi-Fi credentials, private addresses, or other secrets.
+  - type: input
+    id: revision
+    attributes:
+      label: Hardware revision
+      description: MCU/board, sensor modules, and wiring revision
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Firmware commit
+      description: Commit SHA and Debug or Release preset
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, what you expected, and how to reproduce it
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed credentials and private data.
+          required: true
+        - label: I tested the latest `main` branch or explained why I could not.
+          required: true
