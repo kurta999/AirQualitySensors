@@ -5,7 +5,17 @@
 #include "circbuff/circbuff.h"
 #include "hpma/hpma_parser.h"
 #include "measurement_format.h"
+#include "measurement_store.h"
 #include "protocol.h"
+#include "sensor_retry.h"
+#include "task_health.h"
+
+/* Required by the tiny printf implementation the firmware and these tests
+   share; nothing here uses its console output. */
+void _putchar(char character)
+{
+    (void)character;
+}
 
 static unsigned int failures;
 
@@ -105,9 +115,9 @@ static void test_hpma_parser(void)
     CHECK(accepted == 0U);
 }
 
-static void test_measurement_format(void)
+static MeasurementSnapshot make_snapshot(void)
 {
-    const MeasurementSnapshot measurement = {
+    MeasurementSnapshot measurement = {
         .scd30_co2_ppm = 420.5F,
         .scd30_temperature_c = 22.25F,
         .scd30_relative_humidity_percent = 45.0F,
@@ -115,7 +125,6 @@ static void test_measurement_format(void)
         .bme680_relative_humidity_percent = 44.5F,
         .bme680_pressure_hpa = 1001.25F,
         .bme680_gas_resistance_ohm = 12345U,
-        .bme680_timestamp_ms = 6789U,
         .pm25_ug_m3 = 12U,
         .pm10_ug_m3 = 34U,
         .uv_raw = 56U,
@@ -124,18 +133,187 @@ static void test_measurement_format(void)
         .blue = 3.0F,
         .color_temperature_k = 4000U,
         .lux = 250U,
+        .snapshot_timestamp_ms = 10000U,
     };
-    char output[256];
+
+    for(int source = 0; source < MEASUREMENT_SOURCE_COUNT; ++source)
+    {
+        measurement.timestamp_ms[source] = 9000U;
+        measurement.valid_mask |= 1U << source;
+    }
+    measurement.timestamp_ms[MEASUREMENT_SOURCE_BME680] = 6789U;
+    return measurement;
+}
+
+static void test_measurement_format(void)
+{
+    const MeasurementSnapshot measurement = make_snapshot();
+
+    char output[MEASUREMENT_FORMAT_MAX_LEN];
     const int length = Measurements_Format(output, sizeof(output), &measurement);
     CHECK(length > 0);
     CHECK((size_t)length == strlen(output));
     CHECK(strstr(output, "SCD30: 22.2500,45.0000,420.5000") != NULL);
     CHECK(strstr(output, "HONEYWELL: 12,34") != NULL);
 
+    /*
+     * The record is consumed by the backend
+     * (https://github.com/kurta999/WindowsAddon), which reads the values
+     * positionally. Pin the whole line so any change to field order, count or
+     * spacing fails here instead of silently breaking the receiver.
+     */
+    CHECK(strcmp(output,
+                 "MEAS_DATA SCD30: 22.2500,45.0000,420.5000 "
+                 "BME680: 23.0000,44.5000,1001.2500,12345,6789 "
+                 "HONEYWELL: 12,34 VEML6070: 56 "
+                 "TCS: 1.0000,2.0000,3.0000,4000,250\n") == 0);
+
     char too_small[8];
     CHECK(Measurements_Format(too_small, sizeof(too_small), &measurement) == -1);
     CHECK(too_small[sizeof(too_small) - 1U] == '\0');
     CHECK(Measurements_Format(NULL, 0U, &measurement) == -1);
+}
+
+/*
+ * Guards the P1 defect directly: newlib-nano drops %f unless _printf_float is
+ * linked, which the firmware does not do. These tests link the same tiny
+ * printf the firmware uses, so an exact-output check here is evidence about
+ * the target, not just about the host.
+ */
+static void test_float_formatting(void)
+{
+    MeasurementSnapshot measurement = make_snapshot();
+    measurement.scd30_temperature_c = -7.5F;
+    measurement.bme680_pressure_hpa = 1013.0625F;
+
+    char output[MEASUREMENT_FORMAT_MAX_LEN];
+    CHECK(Measurements_Format(output, sizeof(output), &measurement) > 0);
+    CHECK(strstr(output, "SCD30: -7.5000,") != NULL);
+    CHECK(strstr(output, ",1013.0625,") != NULL);
+    /* A dropped conversion would leave the literal format specifier behind. */
+    CHECK(strstr(output, "%f") == NULL);
+    CHECK(strstr(output, "SCD30: ,") == NULL);
+}
+
+/** The declared buffer size must hold the widest line the formatter can emit. */
+static void test_measurement_format_worst_case(void)
+{
+    MeasurementSnapshot measurement;
+    memset(&measurement, 0, sizeof(measurement));
+    measurement.scd30_co2_ppm = -99999.9375F;
+    measurement.scd30_temperature_c = -99999.9375F;
+    measurement.scd30_relative_humidity_percent = -99999.9375F;
+    measurement.bme680_temperature_c = -99999.9375F;
+    measurement.bme680_relative_humidity_percent = -99999.9375F;
+    measurement.bme680_pressure_hpa = -99999.9375F;
+    measurement.bme680_gas_resistance_ohm = UINT32_MAX;
+    measurement.pm25_ug_m3 = UINT16_MAX;
+    measurement.pm10_ug_m3 = UINT16_MAX;
+    measurement.uv_raw = UINT16_MAX;
+    measurement.red = -99999.9375F;
+    measurement.green = -99999.9375F;
+    measurement.blue = -99999.9375F;
+    measurement.color_temperature_k = UINT16_MAX;
+    measurement.lux = UINT16_MAX;
+    measurement.valid_mask = 0x1FU;
+    measurement.snapshot_timestamp_ms = 0x7FFFFFFFU;
+    measurement.timestamp_ms[MEASUREMENT_SOURCE_BME680] = UINT32_MAX;
+
+    char output[MEASUREMENT_FORMAT_MAX_LEN];
+    const int length = Measurements_Format(output, sizeof(output), &measurement);
+    CHECK(length > 0);
+    CHECK((size_t)length < MEASUREMENT_FORMAT_MAX_LEN);
+}
+
+static void test_measurement_validity(void)
+{
+    MeasurementSnapshot measurement;
+    memset(&measurement, 0, sizeof(measurement));
+    measurement.snapshot_timestamp_ms = 5000U;
+
+    /* A zeroed store must not look like a fresh set of readings. */
+    for(int source = 0; source < MEASUREMENT_SOURCE_COUNT; ++source)
+    {
+        CHECK(Measurements_IsValid(&measurement, (MeasurementSource)source) == 0U);
+        CHECK(Measurements_AgeMs(&measurement, (MeasurementSource)source)
+              == UINT32_MAX);
+        CHECK(Measurements_IsFresh(&measurement, (MeasurementSource)source,
+                                   MEASUREMENT_DEFAULT_MAX_AGE_MS) == 0U);
+    }
+
+    measurement.valid_mask = 1U << MEASUREMENT_SOURCE_UV;
+    measurement.timestamp_ms[MEASUREMENT_SOURCE_UV] = 4000U;
+    CHECK(Measurements_IsValid(&measurement, MEASUREMENT_SOURCE_UV) == 1U);
+    CHECK(Measurements_AgeMs(&measurement, MEASUREMENT_SOURCE_UV) == 1000U);
+    CHECK(Measurements_IsFresh(&measurement, MEASUREMENT_SOURCE_UV, 1000U) == 1U);
+    CHECK(Measurements_IsFresh(&measurement, MEASUREMENT_SOURCE_UV, 999U) == 0U);
+
+    /* Ages must stay correct across the 32-bit tick wraparound. */
+    measurement.timestamp_ms[MEASUREMENT_SOURCE_UV] = UINT32_MAX - 99U;
+    measurement.snapshot_timestamp_ms = 100U;
+    CHECK(Measurements_AgeMs(&measurement, MEASUREMENT_SOURCE_UV) == 200U);
+
+    CHECK(Measurements_IsValid(NULL, MEASUREMENT_SOURCE_UV) == 0U);
+    CHECK(Measurements_IsValid(&measurement, MEASUREMENT_SOURCE_COUNT) == 0U);
+}
+
+static void test_sensor_retry(void)
+{
+    SensorRetryState state;
+    SensorRetry_Reset(&state);
+    CHECK(SensorRetry_IsInitialized(&state) == 0U);
+
+    SensorRetry_ReportInitialized(&state);
+    CHECK(SensorRetry_IsInitialized(&state) == 1U);
+
+    /* Transient failures must not drop a working sensor. */
+    for(unsigned int attempt = 1U; attempt < SENSOR_MAX_READ_FAILURES; ++attempt)
+    {
+        CHECK(SensorRetry_ReportFailure(&state) == 0U);
+        CHECK(SensorRetry_IsInitialized(&state) == 1U);
+    }
+    SensorRetry_ReportSuccess(&state);
+
+    /* A sustained run of failures drops it for reinitialisation. */
+    uint8_t dropped = 0U;
+    for(unsigned int attempt = 0U; attempt < SENSOR_MAX_READ_FAILURES; ++attempt)
+    {
+        dropped = SensorRetry_ReportFailure(&state);
+    }
+    CHECK(dropped == 1U);
+    CHECK(SensorRetry_IsInitialized(&state) == 0U);
+}
+
+static void test_task_health(void)
+{
+    TaskHealth_Reset();
+
+    /* With nothing registered the watchdog must not be blocked. */
+    CHECK(TaskHealth_AllAlive(0U) == 1U);
+
+    TaskHealth_Register(TASK_HEALTH_SENSORS, 1000U, 0U);
+    TaskHealth_Register(TASK_HEALTH_USER_INTERFACE, 500U, 0U);
+    CHECK(TaskHealth_AllAlive(400U) == 1U);
+
+    /* A task that never reports is caught even if it never ran. */
+    CHECK(TaskHealth_AllAlive(600U) == 0U);
+    CHECK(TaskHealth_LateMask(600U) == (1U << TASK_HEALTH_USER_INTERFACE));
+
+    TaskHealth_ReportAlive(TASK_HEALTH_USER_INTERFACE, 600U);
+    CHECK(TaskHealth_AllAlive(900U) == 1U);
+
+    /* One wedged task is enough to stop the watchdog refresh. */
+    TaskHealth_ReportAlive(TASK_HEALTH_USER_INTERFACE, 2000U);
+    CHECK(TaskHealth_AllAlive(2000U) == 0U);
+    CHECK(TaskHealth_LateMask(2000U) == (1U << TASK_HEALTH_SENSORS));
+
+    /* Deadlines must survive the tick wraparound. */
+    TaskHealth_Reset();
+    TaskHealth_Register(TASK_HEALTH_SENSORS, 1000U, UINT32_MAX - 100U);
+    CHECK(TaskHealth_AllAlive(500U) == 1U);
+    CHECK(TaskHealth_AllAlive(1500U) == 0U);
+
+    TaskHealth_Reset();
 }
 
 int main(void)
@@ -144,6 +322,11 @@ int main(void)
     test_circular_buffer();
     test_hpma_parser();
     test_measurement_format();
+    test_float_formatting();
+    test_measurement_format_worst_case();
+    test_measurement_validity();
+    test_sensor_retry();
+    test_task_health();
 
     if(failures != 0U)
     {

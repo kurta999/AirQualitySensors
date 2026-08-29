@@ -1,8 +1,13 @@
 #ifndef APP_CONFIG_H
 #define APP_CONFIG_H
 
-/* Local deployments may override these safe defaults in app_config.local.h. */
-#if defined(__has_include)
+/*
+ * Local deployments may override these safe defaults in app_config.local.h.
+ * Defining APP_CONFIG_IGNORE_LOCAL skips that file so a build (notably the CI
+ * Wi-Fi configuration) gets exactly the settings passed on the command line,
+ * whatever happens to be in the working tree.
+ */
+#if defined(__has_include) && !defined(APP_CONFIG_IGNORE_LOCAL)
 #  if __has_include("app_config.local.h")
 #    include "app_config.local.h"
 #  endif

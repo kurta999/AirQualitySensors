@@ -1,6 +1,8 @@
  /* Includes ------------------------------------------------------------------*/
 #include <esp32_config.h>
-#include <esp32/esp32.h>
+/* Included relative to this file: the directory is "ESP32", so <esp32/esp32.h>
+   only resolved on case-insensitive filesystems and broke the Linux build. */
+#include "esp32.h"
 #include <stm32_atomic/stm32_atomic.h>
 #include "device_specific.h"
 #include <string.h>
@@ -13,6 +15,13 @@
 #include "stm32l4xx_ll_usart.h"
 #include "usart_driver.h"
 #include "wifi.h"
+
+/* Use the bundled tiny printf here as well. The AT commands below only format
+   integers and strings, so newlib-nano's integer-only formatter would work,
+   but keeping every formatting call on one implementation means newlib's stdio
+   is never linked at all -- which is what lets CI assert that a %f can never
+   silently print nothing. It is also several kilobytes smaller. */
+#include "newlib_fixes/printf.h"
 
 /* Private macro -------------------------------------------------------------*/
 #ifndef ESP32_CFG_FILE

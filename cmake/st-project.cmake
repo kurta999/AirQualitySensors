@@ -3,13 +3,16 @@ function(add_st_target_properties target_name)
         Core/Src/bosch_sensor.c
         Core/Src/freertos.c
         Core/Src/honeywell_sensor.c
+        Core/Src/i2c_bus.c
         Core/Src/light_sensor.c
         Core/Src/main.c
         Core/Src/measurement_format.c
         Core/Src/measurement_store.c
+        Core/Src/measurement_view.c
         Core/Src/protocol.c
         Core/Src/scd_sensor.c
         Core/Src/sensors.c
+        Core/Src/task_health.c
         Core/Src/user_interface.c
         Core/Src/usart_driver.c
         Core/Src/uv_sensor.c
@@ -101,6 +104,19 @@ function(add_st_target_properties target_name)
         STM32L476xx
         USE_FULL_LL_DRIVER
         $<$<CONFIG:Debug>:DEBUG>)
+
+    # Compile-only Wi-Fi configuration. The default build leaves APP_WIFI_ENABLED
+    # at 0, so without this the whole ESP32 code path is never compiled by CI.
+    # APP_CONFIG_IGNORE_LOCAL makes the configuration reproducible by ignoring
+    # any app_config.local.h in the working tree; the credentials are
+    # placeholders and this build is not meant to connect to anything.
+    if(AQS_WIFI_ENABLED)
+        target_compile_definitions(${target_name} PRIVATE
+            APP_CONFIG_IGNORE_LOCAL
+            APP_WIFI_ENABLED=1
+            APP_WIFI_SSID="ci-build-only"
+            APP_WIFI_PASSWORD="ci-build-only")
+    endif()
 
     target_include_directories(${target_name} PRIVATE
         Core/Inc

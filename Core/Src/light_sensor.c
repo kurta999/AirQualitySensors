@@ -4,9 +4,13 @@
 #include <stdint.h>
 
 #include "cmsis_os.h"
+#include "i2c_bus.h"
 #include "measurement_store.h"
 
 extern I2C_HandleTypeDef hi2c1;
+
+/* Tcs34725_Init()/Tcs34725_Read() hold the shared I2C1 lock for one whole
+ * operation; the static helpers below must never take it themselves. */
 
 #define TCS34725_ADDRESS                0x29U
 #define TCS34725_COMMAND_BIT            0x80U
@@ -108,7 +112,7 @@ static uint16_t calculate_lux(uint16_t red, uint16_t green, uint16_t blue)
     return (uint16_t)lroundf(illuminance);
 }
 
-HAL_StatusTypeDef Tcs34725_Init(void)
+static HAL_StatusTypeDef tcs34725_init_locked(void)
 {
     uint8_t id = 0U;
     HAL_StatusTypeDef status = read_register(TCS34725_REGISTER_ID, &id);
@@ -140,7 +144,7 @@ HAL_StatusTypeDef Tcs34725_Init(void)
     return status;
 }
 
-HAL_StatusTypeDef Tcs34725_Read(void)
+static HAL_StatusTypeDef tcs34725_read_locked(void)
 {
     uint16_t red_raw = 0U;
     uint16_t green_raw = 0U;
@@ -168,6 +172,31 @@ HAL_StatusTypeDef Tcs34725_Read(void)
         green,
         blue,
         calculate_color_temperature(red_raw, green_raw, blue_raw, clear_raw),
-        calculate_lux(red_raw, green_raw, blue_raw));
+        calculate_lux(red_raw, green_raw, blue_raw),
+        osKernelSysTick());
     return HAL_OK;
+}
+
+HAL_StatusTypeDef Tcs34725_Init(void)
+{
+    HAL_StatusTypeDef status = I2cBus_Lock();
+    if(status != HAL_OK)
+    {
+        return status;
+    }
+    status = tcs34725_init_locked();
+    I2cBus_Unlock();
+    return status;
+}
+
+HAL_StatusTypeDef Tcs34725_Read(void)
+{
+    HAL_StatusTypeDef status = I2cBus_Lock();
+    if(status != HAL_OK)
+    {
+        return status;
+    }
+    status = tcs34725_read_locked();
+    I2cBus_Unlock();
+    return status;
 }

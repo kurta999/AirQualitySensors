@@ -135,10 +135,18 @@ int main(void)
   }
 #endif
 
-  (void)Honeywell_Init();
+  if(Honeywell_Init() != HAL_OK)
+  {
+    /* The particle sensor is optional. It stays marked invalid and
+       Honeywell_Poll(), called from SensorsTask, keeps retrying. */
+    Honeywell_RequestRestart();
+  }
 
   for(int i = 0; i != 10; i++)
   {
+    /* This startup blink runs before the scheduler, so nothing else is
+       refreshing the ~4 s watchdog while it does. */
+    (void)HAL_IWDG_Refresh(&hiwdg);
     HAL_Delay(100);
     HAL_GPIO_WritePin(ULED_2_GPIO_Port, ULED_2_Pin, 1);
     HAL_Delay(100);
@@ -253,6 +261,20 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   if(huart->Instance == huart4.Instance)
   {
       Honeywell_UartRecv(huart);
+  }
+}
+
+/**
+  * @brief UART error callback
+  * @note  The HAL aborts the pending interrupt-driven reception on overrun,
+  *        noise and framing errors. Without rearming, a single such error
+  *        would freeze the particle readings for good.
+  */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if(huart->Instance == huart4.Instance)
+  {
+      Honeywell_UartError(huart);
   }
 }
 

@@ -8,12 +8,14 @@
 #include "app_config.h"
 #include "bosch_sensor.h"
 #include "cmsis_os.h"
+#include "i2c_bus.h"
 #include "iwdg.h"
 #include "main.h"
 #include "measurement_format.h"
 #include "measurement_store.h"
 #include "protocol.h"
 #include "sensors.h"
+#include "task_health.h"
 #include "usart.h"
 #include "usart_driver.h"
 #include "usb_host.h"
@@ -33,6 +35,17 @@ osThreadId SensorsBme680Handle;
 osMutexId lcd_mutexHandle;
 
 static uint32_t last_measurement_sent;
+
+/*
+ * Watchdog deadlines. Each is generous relative to its task's loop period so
+ * that normal jitter never trips it, while still catching a task that has
+ * stopped making progress. The IWDG itself expires about 4 s after the last
+ * refresh, so a missed deadline resets the device shortly after it is noticed.
+ */
+#define TASK_DEADLINE_USER_INTERFACE_MS 5000U   /* loop period 500 ms  */
+#define TASK_DEADLINE_SENSORS_MS        10000U  /* loop period 1000 ms */
+#define TASK_DEADLINE_BME680_MS         10000U  /* loop period <= 1000 ms */
+#define TASK_DEADLINE_WIFI_MS           30000U  /* setup retries take 5 s each */
 
 static void SendMessage(const uint8_t* message, size_t length)
 {
@@ -87,7 +100,7 @@ static void SendMeasurements(void)
     }
 
     MeasurementSnapshot measurement;
-    char output[256];
+    char output[MEASUREMENT_FORMAT_MAX_LEN];
     Measurements_GetSnapshot(&measurement);
     const int length = Measurements_Format(output, sizeof(output), &measurement);
     if(length > 0)
@@ -109,7 +122,11 @@ static void StartDefaultTask(void const* argument)
     {
         SendPressedKeys();
         SendMeasurements();
-        if(hiwdg.Instance != NULL)
+
+        /* Refresh the watchdog only while every essential task is still
+         * making progress. Refreshing unconditionally from here meant the
+         * device stayed alive with all of its real work wedged. */
+        if(hiwdg.Instance != NULL && TaskHealth_AllAlive(osKernelSysTick()) != 0U)
         {
             (void)HAL_IWDG_Refresh(&hiwdg);
         }
@@ -137,6 +154,20 @@ void MX_FREERTOS_Init(void)
     {
         Error_Handler();
     }
+
+    I2cBus_Init();
+
+    /* Registering before the scheduler starts means a task that never reaches
+     * its first loop iteration is caught by the watchdog as well. */
+    const uint32_t now = osKernelSysTick();
+    TaskHealth_Reset();
+    TaskHealth_Register(
+        TASK_HEALTH_USER_INTERFACE, TASK_DEADLINE_USER_INTERFACE_MS, now);
+    TaskHealth_Register(TASK_HEALTH_SENSORS, TASK_DEADLINE_SENSORS_MS, now);
+    TaskHealth_Register(TASK_HEALTH_BME680, TASK_DEADLINE_BME680_MS, now);
+#if APP_WIFI_ENABLED
+    TaskHealth_Register(TASK_HEALTH_WIFI, TASK_DEADLINE_WIFI_MS, now);
+#endif
 
     osThreadDef(defaultTask, StartDefaultTask, osPriorityHigh, 0U, 384U);
     defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);

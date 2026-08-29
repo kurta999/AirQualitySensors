@@ -15,6 +15,14 @@ typedef struct
 {
     uint16_t old_dma_pos;
     osSemaphoreId tx_semaphore;
+    /**
+     * Result of the last DMA transmission, written by the DMA ISR and read by
+     * UsartDriver_Transmit() after the completion semaphore is taken. The
+     * semaphore alone cannot carry this: the error and transfer-complete
+     * interrupts both release it, so without a separate flag a failed
+     * transfer is indistinguishable from a successful one.
+     */
+    volatile uint8_t tx_error;
     uint8_t dma_buffer[1024];
     USART_TypeDef* usart;
     DMA_TypeDef* rx_dma;

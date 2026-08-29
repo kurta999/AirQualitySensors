@@ -88,6 +88,7 @@ uint8_t UsartDriver_Install(UsartDriverHandle* handle, USART_TypeDef* usart,
   handle->tx_dma_channel = tx_dma_channel;
   handle->tx_dma_channel_id = tx_dma_channel_id;
   handle->old_dma_pos = 0U;
+  handle->tx_error = 0U;
   osSemaphoreDef(uart_mutex);
   handle->tx_semaphore = osSemaphoreCreate(osSemaphore(uart_mutex), 1);
   if(handle->tx_semaphore == NULL)
@@ -176,6 +177,7 @@ HAL_StatusTypeDef UsartDriver_Transmit(uint8_t source_type, const char* data, ui
   {
     const uint32_t interrupt_state = __get_PRIMASK();
     __disable_irq();
+    drivers[source_type].driver_instance->tx_error = 0U;
     tx_dma_channel->CCR &= ~DMA_CCR_EN;
     tx_dma_channel->CCR = 0;
     tx_dma->IFCR = 1UL << (DMA_IFCR_CGIF1_Pos + ((tx_dma_channel_id - 1U) * 4U));
@@ -193,8 +195,10 @@ HAL_StatusTypeDef UsartDriver_Transmit(uint8_t source_type, const char* data, ui
     if(osSemaphoreWait(drivers[source_type].driver_instance->tx_semaphore,
                        UART_SEND_TIMEOUT) == osOK)
     {
+      /* Read before releasing the lock: the ISR wrote it before signalling. */
+      const uint8_t tx_error = drivers[source_type].driver_instance->tx_error;
       osSemaphoreRelease(drivers[source_type].driver_instance->tx_semaphore);
-      return HAL_OK;
+      return tx_error == 0U ? HAL_OK : HAL_ERROR;
     }
 
     const uint32_t timeout_interrupt_state = __get_PRIMASK();
@@ -355,6 +359,8 @@ void UsartDriver_DmaIrqHandler(uint8_t source_type, uint8_t is_tx)
       tx_dma->IFCR |= 1UL << (DMA_IFCR_CGIF1_Pos + ((dma_channel_id - 1U) * 4U));  /* Clear global interrupt flag */
       LL_DMA_DisableChannel(tx_dma, dma_channel_id);
       usart->CR3 &= ~USART_CR3_DMAT;
+      /* Record the failure before signalling, so the waiting task sees it. */
+      drivers[source_type].driver_instance->tx_error = 1U;
       osSemaphoreRelease(drivers[source_type].driver_instance->tx_semaphore);
       return;
     }

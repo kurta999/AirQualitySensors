@@ -37,6 +37,15 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_EXPORT_COMPILE_COMMANDS": true
       }
+    },
+    {
+      "name": "wifi-check",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "AQS_WIFI_ENABLED": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -47,6 +56,10 @@
     {
       "name": "release",
       "configurePreset": "release"
+    },
+    {
+      "name": "wifi-check",
+      "configurePreset": "wifi-check"
     }
   ]
 }

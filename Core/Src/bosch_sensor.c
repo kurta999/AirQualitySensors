@@ -7,6 +7,13 @@
 #include "light_sensor.h"
 #include "main.h"
 #include "measurement_store.h"
+#include "sensor_retry.h"
+#include "task_health.h"
+
+/** Loop period used while the BME680 has not reported a profile duration. */
+#define BME680_RETRY_PERIOD_MS 1000U
+/** Floor on the loop period so a bogus profile duration cannot spin the task. */
+#define BME680_MIN_PERIOD_MS 50U
 
 extern SPI_HandleTypeDef hspi2;
 
@@ -96,42 +103,94 @@ static int8_t initialize_bme680(uint16_t* measurement_period_ms)
     return status;
 }
 
+/*
+ * The BME680 (SPI2) and the TCS34725 (I2C1) are initialised and retried
+ * independently: neither sensor being absent may stop the other from running.
+ */
+static void service_bme680(SensorRetryState* state, uint16_t* measurement_period_ms)
+{
+    if(SensorRetry_IsInitialized(state) == 0U)
+    {
+        if(initialize_bme680(measurement_period_ms) != BME680_OK)
+        {
+            return;
+        }
+        SensorRetry_ReportInitialized(state);
+        /* Forced mode has just been armed; the conversion is read next
+         * iteration, once the profile duration has elapsed. */
+        return;
+    }
+
+    struct bme680_field_data measurement = {0};
+    const int8_t status = bme680_get_sensor_data(&measurement, &gas_sensor);
+    if(status == BME680_OK)
+    {
+        SensorRetry_ReportSuccess(state);
+        Measurements_UpdateBme680(
+            measurement.temperature / 100.0F,
+            measurement.humidity / 1000.0F,
+            measurement.pressure / 100.0F,
+            measurement.gas_resistance,
+            osKernelSysTick());
+    }
+    else if(SensorRetry_ReportFailure(state) != 0U)
+    {
+        Measurements_Invalidate(MEASUREMENT_SOURCE_BME680);
+        return;
+    }
+
+    if(gas_sensor.power_mode == BME680_FORCED_MODE)
+    {
+        (void)bme680_set_sensor_mode(&gas_sensor);
+    }
+}
+
+static void service_tcs34725(SensorRetryState* state)
+{
+    if(SensorRetry_IsInitialized(state) == 0U)
+    {
+        if(Tcs34725_Init() != HAL_OK)
+        {
+            return;
+        }
+        SensorRetry_ReportInitialized(state);
+    }
+
+    if(Tcs34725_Read() == HAL_OK)
+    {
+        SensorRetry_ReportSuccess(state);
+    }
+    else if(SensorRetry_ReportFailure(state) != 0U)
+    {
+        Measurements_Invalidate(MEASUREMENT_SOURCE_LIGHT);
+    }
+}
+
 void SensorsBme680Task(void const* argument)
 {
     (void)argument;
     HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_SET);
 
-    while(Tcs34725_Init() != HAL_OK)
-    {
-        osDelay(1000U);
-    }
-
+    SensorRetryState bme680_state;
+    SensorRetryState tcs34725_state;
+    SensorRetry_Reset(&bme680_state);
+    SensorRetry_Reset(&tcs34725_state);
     uint16_t measurement_period_ms = 0U;
-    while(initialize_bme680(&measurement_period_ms) != BME680_OK)
-    {
-        osDelay(1000U);
-    }
 
     for(;;)
     {
-        osDelay(measurement_period_ms);
+        TaskHealth_ReportAlive(TASK_HEALTH_BME680, osKernelSysTick());
 
-        struct bme680_field_data measurement = {0};
-        const int8_t status = bme680_get_sensor_data(&measurement, &gas_sensor);
-        if(status == BME680_OK)
-        {
-            Measurements_UpdateBme680(
-                measurement.temperature / 100.0F,
-                measurement.humidity / 1000.0F,
-                measurement.pressure / 100.0F,
-                measurement.gas_resistance,
-                osKernelSysTick());
-        }
+        service_bme680(&bme680_state, &measurement_period_ms);
+        service_tcs34725(&tcs34725_state);
 
-        if(gas_sensor.power_mode == BME680_FORCED_MODE)
+        uint16_t period_ms = SensorRetry_IsInitialized(&bme680_state) != 0U
+            ? measurement_period_ms
+            : BME680_RETRY_PERIOD_MS;
+        if(period_ms < BME680_MIN_PERIOD_MS)
         {
-            (void)bme680_set_sensor_mode(&gas_sensor);
+            period_ms = BME680_MIN_PERIOD_MS;
         }
-        (void)Tcs34725_Read();
+        osDelay(period_ms);
     }
 }

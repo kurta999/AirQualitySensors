@@ -12,6 +12,8 @@ MEAS_DATA SCD30: <temperature>,<humidity>,<co2> BME680: <temperature>,<humidity>
 
 Floating-point values use four decimal places. Integers are unsigned decimal values. The same record format is used for USART2 and ESP32 TCP output. Measurement records do not carry a CRC or length prefix; receivers should read through the newline and reject incomplete or oversized lines.
 
+This record is a contract with the backend, [WindowsAddon](https://github.com/kurta999/WindowsAddon), which reads the values positionally. The field order and count must not change without updating the receiver in the same breath; adding, removing or reordering a field breaks it even though the firmware still compiles. The host test suite pins the exact record so an accidental change fails there first. Per-sensor validity and last-update timestamps are tracked inside the firmware and shown on the LCD, but are deliberately kept off the wire for this reason.
+
 ## Keyboard gateway messages
 
 At USB-host startup, USART2 sends the five ASCII bytes `reset`. While a HID keyboard is ready, it sends the raw `HID_KEYBD_Info_TypeDef` bytes returned by the STM32 USB Host HID class.

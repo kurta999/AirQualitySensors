@@ -7,12 +7,24 @@
 #include "main.h"
 #include "measurement_format.h"
 #include "measurement_store.h"
+#include "task_health.h"
+
+/** Delay between attempts to bring the link up. */
+#define WIFI_SETUP_RETRY_DELAY_MS 5000U
 
 static Esp32Handle esp32;
 static volatile uint8_t wifi_ready;
 static uint8_t failed_send_count;
 static volatile uint8_t force_send;
 static uint32_t last_data_sent;
+/**
+ * Requests a full rerun of the setup state machine. Set at startup and again
+ * whenever the ESP32 is found in a state where its configuration (multi
+ * connection mode, AP join, TCP server) can no longer be assumed to hold --
+ * an unexpected restart wipes all of it, and merely clearing wifi_ready would
+ * leave the link down forever.
+ */
+static volatile uint8_t wifi_setup_required = 1U;
 
 static uint8_t at_argument_is_safe(const char* value, size_t capacity)
 {
@@ -140,13 +152,24 @@ void WifiTask(void const* argument)
 {
     (void)argument;
 
-    while(wifi_setup() != HAL_OK)
-    {
-        osDelay(5000U);
-    }
-
     for(;;)
     {
+        TaskHealth_ReportAlive(TASK_HEALTH_WIFI, osKernelSysTick());
+
+        if(wifi_setup_required != 0U)
+        {
+            /* Cleared first: a restart detected while setup runs rearms the
+             * flag instead of being swallowed by this pass. */
+            wifi_setup_required = 0U;
+            if(wifi_setup() != HAL_OK)
+            {
+                wifi_setup_required = 1U;
+                osDelay(WIFI_SETUP_RETRY_DELAY_MS);
+                continue;
+            }
+            failed_send_count = 0U;
+        }
+
         ESP32_Task(&esp32);
         const uint32_t now = osKernelSysTick();
         if(wifi_ready != 0U &&
@@ -165,7 +188,7 @@ void WifiTask(void const* argument)
             if(status == HAL_OK)
             {
                 MeasurementSnapshot measurement;
-                char output[256];
+                char output[MEASUREMENT_FORMAT_MAX_LEN];
                 Measurements_GetSnapshot(&measurement);
                 const int length =
                     Measurements_Format(output, sizeof(output), &measurement);
@@ -189,6 +212,13 @@ void WifiTask(void const* argument)
             else if(failed_send_count < UINT8_MAX)
             {
                 ++failed_send_count;
+                if(failed_send_count >= MAX_WIFI_RETRIES)
+                {
+                    /* The link reports ready but nothing gets through;
+                     * rebuild it from scratch. */
+                    wifi_ready = 0U;
+                    wifi_setup_required = 1U;
+                }
             }
             last_data_sent = now;
         }
@@ -229,16 +259,20 @@ void ESP32_OnReconnectFailed(Esp32Handle* handle)
 {
     (void)handle;
     wifi_ready = 0U;
+    wifi_setup_required = 1U;
 }
 
 void ESP32_OnUnexpectedRestart(Esp32Handle* handle)
 {
     (void)handle;
+    /* The module rebooted: every setting made during setup is gone. */
     wifi_ready = 0U;
+    wifi_setup_required = 1U;
 }
 
 void ESP32_OnBaudrateError(Esp32Handle* handle)
 {
     (void)handle;
     wifi_ready = 0U;
+    wifi_setup_required = 1U;
 }

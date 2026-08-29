@@ -7,6 +7,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(AQS_WIFI_ENABLED
+    "Compile the ESP32 Wi-Fi code path with placeholder credentials" OFF)
+
 include(cmake/st-project.cmake)
 
 add_executable(${PROJECT_NAME})

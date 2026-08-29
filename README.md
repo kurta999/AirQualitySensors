@@ -4,7 +4,7 @@
 
 STM32 firmware for an air-quality sensor hub and USB keyboard gateway. It samples five environmental sensors, renders the latest values on an ST7565 LCD, forwards measurements over UART, and can optionally send them through an ESP32 AT-command module over TCP.
 
-The configured target is an **STM32L476ZGTx (Cortex-M4F, LQFP144)**. Pin assignments and generated peripherals live in [AirQualitySensors.ioc](AirQualitySensors.ioc). The companion desktop application is [CustomKeyboard](https://github.com/kurta999/CustomKeyboard).
+The configured target is an **STM32L476ZGTx (Cortex-M4F, LQFP144)**. Pin assignments and generated peripherals live in [AirQualitySensors.ioc](AirQualitySensors.ioc). Measurements are consumed by the companion desktop application, [WindowsAddon](https://github.com/kurta999/WindowsAddon) — see [Backend](#backend).
 
 ## Features
 
@@ -17,7 +17,7 @@ The configured target is an **STM32L476ZGTx (Cortex-M4F, LQFP144)**. Pin assignm
 - USB HID keyboard host with UART forwarding
 - Optional ESP32 Wi-Fi/TCP transport, disabled by default
 - FreeRTOS task separation and synchronized measurement snapshots
-- Debug and Release CMake presets, host-side unit tests, and GitHub Actions CI
+- Debug, Release, and Wi-Fi-check CMake presets, host-side unit tests, and GitHub Actions CI
 
 ## Hardware connections
 
@@ -66,6 +66,14 @@ For the optimized build, replace `debug` with `release`. Each build produces the
 
 The repository also remains importable in STM32CubeIDE. CMake is the reproducible build used by CI and is the recommended command-line path.
 
+## Backend
+
+Measurements are received by [WindowsAddon](https://github.com/kurta999/WindowsAddon), a Windows tray toolbox that also serves as the sensor backend for this firmware. It runs the TCP server the device reports to, stores the average of the measurements in a configured integration period in an SQLite database, and generates graphs from recent measurements plus daily and weekly averages. The graphs are served at `your_local_ip:2005/graphs` and can be viewed from any device on the network, including a phone.
+
+Point the firmware at it with `APP_SERVER_ADDRESS` and `APP_SERVER_PORT` (see below); the default port `2005` matches its listener. The same measurement record also goes out on USART2, so the backend can be fed over the wired link instead of Wi-Fi.
+
+The record is a shared wire format documented in [docs/protocol.md](docs/protocol.md). The receiver reads its values positionally, so changing the order, count or spacing of the fields breaks the backend even though the firmware still builds. The host test suite pins the exact record to catch that.
+
 ## Local configuration and Wi-Fi
 
 The committed defaults in [app_config.h](Core/Inc/app_config.h) disable Wi-Fi and contain no deployment credentials. To enable it:
@@ -98,7 +106,7 @@ cmake --build build/host-tests --parallel
 ctest --test-dir build/host-tests --output-on-failure
 ```
 
-GitHub Actions runs these tests and both firmware presets on every push and pull request. Hardware behavior still needs validation on the target board, especially sensor availability, bus timing, display orientation, USB power switching, watchdog timing, and ESP32 firmware compatibility.
+GitHub Actions runs these tests and all three firmware presets on every push and pull request. The `wifi-check` preset compiles the ESP32 code path with placeholder credentials, which the Wi-Fi-disabled default builds never reach. Hardware behavior still needs validation on the target board, especially sensor availability, bus timing, display orientation, USB power switching, watchdog timing, and ESP32 firmware compatibility.
 
 ## Architecture
 
@@ -112,6 +120,10 @@ sensor tasks / HPMA ISR
  ST7565 UI       bounded text formatter
                          │
                    UART2 / ESP32 TCP
+                         │
+                         ▼
+                  WindowsAddon backend
+                   (SQLite + graphs)
 ```
 
 Application code is under `Core/`, reusable drivers are under `libs/`, generated STM32 and USB support is under `Drivers/`, `Middlewares/`, and `USB_HOST/`, and build logic is under `cmake/`. See [docs/protocol.md](docs/protocol.md) for wire formats.
