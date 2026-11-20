@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "i2c_bus.h"
+#include "device_config.h"
 
 extern I2C_HandleTypeDef hi2c1;
 
@@ -21,7 +22,9 @@ static HAL_StatusTypeDef veml6070_init_locked(void)
     (void)HAL_I2C_Master_Receive(&hi2c1, VEML6070_ADDRESS_ARA << 1U,
                                  &ara_value, 1U, 100U);
 
-    uint8_t command = VEML6070_COMMAND_RESERVED | VEML6070_COMMAND_IT_4T;
+    DeviceConfig config;
+    DeviceConfig_Get(&config);
+    uint8_t command = (uint8_t)(VEML6070_COMMAND_RESERVED | (config.uv_integration << 2U));
     return HAL_I2C_Master_Transmit(&hi2c1, VEML6070_ADDRESS_LOW << 1U,
                                    &command, 1U, 100U);
 }
@@ -52,6 +55,16 @@ HAL_StatusTypeDef VEML6070_Init(void)
         return status;
     }
     status = veml6070_init_locked();
+    I2cBus_Unlock();
+    return status;
+}
+
+HAL_StatusTypeDef VEML6070_Stop(void)
+{
+    HAL_StatusTypeDef status = I2cBus_Lock();
+    if(status != HAL_OK) { return status; }
+    uint8_t command = VEML6070_COMMAND_RESERVED | 1U;
+    status = HAL_I2C_Master_Transmit(&hi2c1, VEML6070_ADDRESS_LOW << 1U, &command, 1U, 100U);
     I2cBus_Unlock();
     return status;
 }

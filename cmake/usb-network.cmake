@@ -11,6 +11,9 @@ function(add_usb_network_sources target_name)
         ${tinyusb}/src/portable/synopsys/dwc2/dwc2_common.c
         ${tinyusb}/lib/networking/rndis_reports.c
         ${lwip_core}
+        ${lwip}/src/apps/mdns/mdns.c
+        Core/Src/device_web.c
+        Core/Src/web_assets.c
         ${lwip}/src/netif/ethernet.c)
     target_include_directories(${target_name} PRIVATE
         ${tinyusb}/src ${tinyusb}/lib/networking ${lwip}/src/include)

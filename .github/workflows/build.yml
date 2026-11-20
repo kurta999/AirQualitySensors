@@ -8,6 +8,24 @@ permissions:
   contents: read
 
 jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dashboard dependencies
+        working-directory: web
+        run: npm ci
+      - name: Type-check, bundle, gzip, and verify size budget
+        working-directory: web
+        run: npm run build
+      - name: Test history decoding
+        working-directory: web
+        run: npm test
   host-tests:
     runs-on: ubuntu-latest
     steps:

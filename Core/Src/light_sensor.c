@@ -6,6 +6,7 @@
 #include "cmsis_os.h"
 #include "i2c_bus.h"
 #include "measurement_store.h"
+#include "device_config.h"
 
 extern I2C_HandleTypeDef hi2c1;
 
@@ -112,6 +113,15 @@ static uint16_t calculate_lux(uint16_t red, uint16_t green, uint16_t blue)
     return (uint16_t)lroundf(illuminance);
 }
 
+HAL_StatusTypeDef Tcs34725_Stop(void)
+{
+    HAL_StatusTypeDef status = I2cBus_Lock();
+    if(status != HAL_OK) { return status; }
+    status = write_register(TCS34725_REGISTER_ENABLE, 0);
+    I2cBus_Unlock();
+    return status;
+}
+
 static HAL_StatusTypeDef tcs34725_init_locked(void)
 {
     uint8_t id = 0U;
@@ -121,10 +131,12 @@ static HAL_StatusTypeDef tcs34725_init_locked(void)
         return HAL_ERROR;
     }
 
-    status = write_register(TCS34725_REGISTER_ATIME, TCS34725_INTEGRATION_TIME_50MS);
+    DeviceConfig config;
+    DeviceConfig_Get(&config);
+    status = write_register(TCS34725_REGISTER_ATIME, (uint8_t)(256U - config.light_cycles));
     if(status == HAL_OK)
     {
-        status = write_register(TCS34725_REGISTER_CONTROL, TCS34725_GAIN_4X);
+        status = write_register(TCS34725_REGISTER_CONTROL, (uint8_t)config.light_gain);
     }
     if(status == HAL_OK)
     {
@@ -139,7 +151,7 @@ static HAL_StatusTypeDef tcs34725_init_locked(void)
     }
     if(status == HAL_OK)
     {
-        osDelay(55U);
+        osDelay((config.light_cycles * 24U + 9U) / 10U + 5U);
     }
     return status;
 }

@@ -21,6 +21,7 @@ extern volatile Scd30Diagnostics scd30_diagnostics;
 
 /** Returns 0 on success, non-zero on failure. */
 int16_t Scd30_Init(void);
+int16_t Scd30_Stop(void);
 
 /**
  * Checks once whether a new measurement is available and stores it if so.

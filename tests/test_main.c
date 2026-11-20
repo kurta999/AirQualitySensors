@@ -390,8 +390,10 @@ static void test_usb_dhcp(void)
     CHECK(UsbDhcp_Reply(request, sizeof(request), reply, sizeof(reply), server, client, mask) == 300);
 }
 
+unsigned int test_device_web(void);
 int main(void)
 {
+    failures += test_device_web();
     test_crc16();
     test_circular_buffer();
     test_hpma_parser();

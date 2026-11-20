@@ -1,6 +1,7 @@
 #include "scd_sensor.h"
 
 #include "app_config.h"
+#include "device_config.h"
 #include "cmsis_os.h"
 #include "i2c.h"
 #include "i2c_bus.h"
@@ -23,13 +24,16 @@ static uint32_t last_progress_ms;
 
 static int16_t scd30_init_locked(void)
 {
+    DeviceConfig config;
+    DeviceConfig_Get(&config);
     int16_t status = scd30_probe();
     if(status != SCD30_NO_ERROR)
     {
         return status;
     }
 
-#if APP_SCD30_RECOVERY_ENABLED
+    if(config.scd_recovery)
+    {
     status = sensirion_i2c_write_cmd(scd30_get_configured_address(), SCD30_CMD_SOFT_RESET);
     if(status != SCD30_NO_ERROR)
     {
@@ -37,7 +41,7 @@ static int16_t scd30_init_locked(void)
     }
     ++scd30_diagnostics.reset_count;
     sensirion_sleep_usec(2000000U);
-#endif
+    }
 
     uint16_t firmware_version = 0U;
     status = sensirion_i2c_delayed_read_cmd(scd30_get_configured_address(),
@@ -54,7 +58,7 @@ static int16_t scd30_init_locked(void)
         return status;
     }
     sensirion_sleep_usec(20000U);
-    status = scd30_set_measurement_interval(SCD30_MEASUREMENT_INTERVAL_SECONDS);
+    status = scd30_set_measurement_interval((uint16_t)config.scd_interval_s);
     if(status != SCD30_NO_ERROR)
     {
         return status;
@@ -63,12 +67,25 @@ static int16_t scd30_init_locked(void)
     uint16_t interval_s = 0U;
     status = sensirion_i2c_delayed_read_cmd(scd30_get_configured_address(),
         SCD30_CMD_MEASUREMENT_INTERVAL, 3000U, &interval_s, 1U);
-    if(status != SCD30_NO_ERROR || interval_s != SCD30_MEASUREMENT_INTERVAL_SECONDS)
+    if(status != SCD30_NO_ERROR || interval_s != config.scd_interval_s)
     {
         return status != SCD30_NO_ERROR ? status : -1;
     }
     scd30_diagnostics.measurement_interval_s = interval_s;
-    status = scd30_start_periodic_measurement(APP_SCD30_AMBIENT_PRESSURE_MBAR);
+    /* These settings persist in the sensor. Read first to avoid rewriting its
+     * EEPROM during ordinary retry/recovery cycles. */
+    uint16_t value;
+    status = sensirion_i2c_delayed_read_cmd(scd30_get_configured_address(), 0x5403U, 3000U, &value, 1U);
+    if(status == 0 && value != config.scd_temperature_offset) { status = scd30_set_temperature_offset((uint16_t)config.scd_temperature_offset); }
+    if(status != 0) { return status; }
+    status = sensirion_i2c_delayed_read_cmd(scd30_get_configured_address(), 0x5102U, 3000U, &value, 1U);
+    if(status == 0 && value != config.scd_altitude_m) { status = scd30_set_altitude((uint16_t)config.scd_altitude_m); }
+    if(status != 0) { return status; }
+    uint8_t asc;
+    status = scd30_get_automatic_self_calibration(&asc);
+    if(status == 0 && asc != config.scd_asc) { status = scd30_enable_automatic_self_calibration((uint8_t)config.scd_asc); }
+    if(status != 0) { return status; }
+    status = scd30_start_periodic_measurement((uint16_t)config.scd_pressure_mbar);
     if(status == SCD30_NO_ERROR)
     {
         /* Let the start command settle before the task's first status poll. */
@@ -102,12 +119,12 @@ static int16_t scd30_poll_locked(void)
     if(data_ready == 0U)
     {
         ++scd30_diagnostics.not_ready_count;
-#if APP_SCD30_RECOVERY_ENABLED
-        if((osKernelSysTick() - last_progress_ms) >= SCD30_NO_DATA_TIMEOUT_MS)
+        DeviceConfig config;
+        DeviceConfig_Get(&config);
+        if(config.scd_recovery && (osKernelSysTick() - last_progress_ms) >= config.scd_interval_s * 2000U + SCD30_NO_DATA_TIMEOUT_MS)
         {
             return -2;
         }
-#endif
         return SCD30_NO_ERROR;
     }
 
@@ -134,6 +151,14 @@ int16_t Scd30_Poll(void)
     }
     const int16_t status = scd30_poll_locked();
     scd30_diagnostics.poll_status = status;
+    I2cBus_Unlock();
+    return status;
+}
+
+int16_t Scd30_Stop(void)
+{
+    if(I2cBus_Lock() != HAL_OK) { return -1; }
+    const int16_t status = scd30_stop_periodic_measurement();
     I2cBus_Unlock();
     return status;
 }

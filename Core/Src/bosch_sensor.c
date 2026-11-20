@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "app_config.h"
+#include "device_config.h"
 #include "bme680/bme680.h"
 #if APP_BSEC_ENABLED
 #include "bsec_processing.h"
@@ -216,38 +217,56 @@ void SensorsBme680Task(void const* argument)
 #if APP_TCS34725_ENABLED
     SensorRetryState tcs34725_state;
     SensorRetry_Reset(&tcs34725_state);
-#if APP_BSEC_ENABLED
     uint32_t next_light_poll_ms = 0U;
 #endif
-#endif
 
+    DeviceConfig previous;
+    DeviceConfig_Get(&previous);
     for(;;)
     {
         TaskHealth_ReportAlive(TASK_HEALTH_BME680, osKernelSysTick());
 
         uint16_t period_ms = BME680_RETRY_PERIOD_MS;
+        DeviceConfig config;
+        DeviceConfig_Get(&config);
 #if APP_BME680_ENABLED
-        service_bme680(&bme680_state, &measurement_period_ms);
-        period_ms = SensorRetry_IsInitialized(&bme680_state) != 0U
-            ? measurement_period_ms
-            : BME680_RETRY_PERIOD_MS;
+        if(config.master_enabled && (config.sensor_mask & 2U))
+        {
+            service_bme680(&bme680_state, &measurement_period_ms);
+            period_ms = SensorRetry_IsInitialized(&bme680_state) != 0U ? measurement_period_ms : BME680_RETRY_PERIOD_MS;
+        }
+        else
+        {
+            if(SensorRetry_IsInitialized(&bme680_state))
+            { gas_sensor.power_mode = BME680_SLEEP_MODE; (void)bme680_set_sensor_mode(&gas_sensor); }
+            SensorRetry_Reset(&bme680_state);
+            Measurements_Invalidate(MEASUREMENT_SOURCE_BME680);
+            Measurements_Invalidate(MEASUREMENT_SOURCE_IAQ);
+        }
         if(period_ms < BME680_MIN_PERIOD_MS)
         {
             period_ms = BME680_MIN_PERIOD_MS;
         }
 #endif
 #if APP_TCS34725_ENABLED
-#if APP_BSEC_ENABLED
         const uint32_t now = osKernelSysTick();
-        if((int32_t)(now - next_light_poll_ms) >= 0)
+        if(config.master_enabled && (config.sensor_mask & 16U))
         {
-            service_tcs34725(&tcs34725_state);
-            next_light_poll_ms = now + 1000U;
+            if(config.light_gain != previous.light_gain || config.light_cycles != previous.light_cycles)
+            { SensorRetry_Reset(&tcs34725_state); }
+            if((int32_t)(now - next_light_poll_ms) >= 0)
+            { service_tcs34725(&tcs34725_state); next_light_poll_ms = now + config.light_poll_ms; }
         }
-#else
-        service_tcs34725(&tcs34725_state);
+        else
+        {
+            if(SensorRetry_IsInitialized(&tcs34725_state)) { (void)Tcs34725_Stop(); }
+            SensorRetry_Reset(&tcs34725_state);
+            Measurements_Invalidate(MEASUREMENT_SOURCE_LIGHT);
+        }
+        if(period_ms > config.light_poll_ms) { period_ms = (uint16_t)config.light_poll_ms; }
 #endif
-#endif
+        previous = config;
+        (void)previous;
         osDelay(period_ms);
     }
 }

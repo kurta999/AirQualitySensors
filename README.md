@@ -198,16 +198,18 @@ and locally administered MAC address derive from the MCU unique ID.
 | PC address, assigned by the board's DHCP server | `192.168.7.2/30` |
 | DHCP lease | 24 h, one USB host |
 | Default gateway / DNS supplied to PC | None |
-| Live sensor page | `http://192.168.7.1/` |
+| Live dashboard and configuration | `http://air.local/` or `http://192.168.7.1/` |
 | JSON snapshot, validity, timestamps and IAQ status | `http://192.168.7.1/api/measurements` |
 | Existing positional record | `http://192.168.7.1/measurements` |
-| Measurement push destination | PC `192.168.7.2`, `APP_SERVER_PORT` (default `2005`) |
+| Configuration / history | `/api/config`, `/api/history?after=0` |
+| Default measurement push destination | PC `192.168.7.2:2005`, editable in Configuration |
 
 The board sends the existing `MEAS_DATA` record every
 `APP_MEASUREMENT_SEND_INTERVAL_MS` (default 1500 ms). It supports both a
 persistent TCP receiver and the current PC receiver that closes after one
 record. Port 80 also accepts the existing exact `SEND_SENSOR_DATA` command
-to request an immediate push. Other USB requests are read-only HTTP GETs.
+to request an immediate push. Configuration uses same-origin HTTP POSTs;
+see [Dashboard and settings](docs/dashboard.md).
 IP forwarding is disabled and the board does not advertise a default route
 or DNS server, so the PC's existing network connections continue providing
 Internet access. The `192.168.7.0/30` subnet must be free on the PC.
@@ -227,6 +229,40 @@ receiver is installed. In GDB, `sensors` includes `usb_net_diagnostics`;
 packet, DHCP, HTTP, record-send and TCP acknowledgment counters are available.
 The USB stack is confined to one FreeRTOS task and uses bounded packet and
 HTTP buffers. The original raw/BSEC presets remain available.
+
+## Device dashboard
+
+Open **http://air.local/** or **http://192.168.7.1/** from the connected PC.
+The responsive TypeScript dashboard includes Chart.js graphs for every available
+measurement, BSEC accuracy/run-in status, 1/6/24-hour views, and CSV export.
+It works without Internet access or a CDN. Configuration controls the master
+sensor switch, individual sensors, polling, SCD30 compensation/calibration,
+BSEC heat offset/state-save interval, color/UV integration, history, and the
+PC receiver. Save explicitly writes verified settings to flash and applies them.
+Build-time MCU/peripheral capabilities and the direct USB subnet remain fixed.
+
+History uses **57,600 bytes of SRAM2**, holding 600 records with all 21 values
+and BSEC status. Automatic sampling records every 150 seconds for up to 24 h;
+faster selectable intervals reduce retention. History restarts on power loss
+or interval changes. Settings and BSEC calibration survive ordinary reflashing.
+The gzip dashboard is streamed from flash; it is never decompressed in MCU RAM.
+
+To rebuild the checked-in firmware assets after changing `web/src/`:
+
+```powershell
+cd web
+npm ci
+npm run build
+npm test
+cd ..
+cmake --build --preset nucleo-usb --parallel
+```
+
+`web/build.mjs` type-checks through the npm script, bundles only the Chart.js
+components used, gzips the assets, and generates `Core/Src/web_assets.c`.
+Firmware-only builds use that checked-in C file without requiring Node.
+See [docs/dashboard.md](docs/dashboard.md) for memory/layout details, API
+contracts, build checks, and the real-board browser test.
 
 ## Backend
 

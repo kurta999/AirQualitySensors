@@ -3,6 +3,10 @@ function(add_st_target_properties target_name)
     set(linker_script "${CMAKE_CURRENT_SOURCE_DIR}/${AQS_MCU}ZGTX_FLASH.ld")
     set(app_sources
         Core/Src/app_hardware.c
+        Core/Src/device_config.c
+        Core/Src/device_config_store.c
+        Core/Src/http_request.c
+        Core/Src/measurement_history.c
         Core/Src/bosch_sensor.c
         Core/Src/bsec_processing.c
         Core/Src/bsec_state_record.c

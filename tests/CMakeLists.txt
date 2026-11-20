@@ -10,6 +10,10 @@ enable_testing()
 
 add_executable(air_quality_tests
     test_main.c
+    test_device_web.c
+    ../Core/Src/device_config.c
+    ../Core/Src/http_request.c
+    ../Core/Src/measurement_history.c
     ../Core/Src/bsec_state_record.c
     ../Core/Src/usb_dhcp.c
     ../Core/Src/measurement_format.c
@@ -22,7 +26,7 @@ add_executable(air_quality_tests
     # test proves what the target actually emits.
     ../libs/newlib_fixes/printf.c)
 
-target_compile_definitions(air_quality_tests PRIVATE CIRCBUFF_HOST_TEST)
+target_compile_definitions(air_quality_tests PRIVATE CIRCBUFF_HOST_TEST AQS_HISTORY_HOST_TEST APP_CONFIG_IGNORE_LOCAL)
 target_include_directories(air_quality_tests PRIVATE
     ../Core/Inc
     ../libs)

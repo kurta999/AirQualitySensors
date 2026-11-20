@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f3f6fa">
+  <meta name="description" content="Your local air quality station. Live measurements, 24-hour trends, and device settings.">
+  <title>Air · Your environment</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%232b5af7'/%3E%3Cpath d='M9 15h16a4 4 0 1 0-4-4M9 21h22M9 27h13a4 4 0 1 1-4 4' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Air home"><span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M8 14h17a4 4 0 1 0-4-4M8 21h23M8 28h13a4 4 0 1 1-4 4"/></svg></span><span>air<span class="brand-period">.</span></span></a>
+    <div class="workspace"><span class="station-icon" aria-hidden="true">a</span><div><strong id="station-name">Air station</strong><small>Your environment</small></div></div>
+    <p class="nav-caption">WORKSPACE</p>
+    <nav aria-label="Main navigation">
+      <a href="#overview" class="nav-link active" data-nav="overview"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>Overview</a>
+      <a href="#measurements" class="nav-link" data-nav="measurements"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16h16M7 14l4-5 4 3 5-7"/></svg>Measurements</a>
+      <a href="#settings" class="nav-link" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg>Configuration</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="local-badge"><span class="connection-dot"></span>Local connection</div><p>Direct from your sensors.<br>Stored on your device.</p><div class="device-tag">NUCLEO L496 <span>USB</span></div></div>
+  </aside>
+  <div class="shell">
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="page-name">Overview</strong></div><div class="topbar-right"><span id="connection" class="connection"><i></i>Connecting</span><span class="topbar-divider"></span><span class="avatar" aria-label="Local device">a</span></div></header>
+    <main id="overview-page">
+      <div class="page-heading"><div><div class="eyebrow">A LITTLE MORE CLARITY</div><h1>Your air, at a glance.</h1><p>A live view of the space around you.</p></div><div class="date-block"><span id="today"></span><small id="last-update">Waiting for your station</small></div></div>
+      <div id="offline-banner" class="banner" role="status" hidden>Connection interrupted. Reconnecting to your station…</div>
+      <div class="section-heading overview-heading"><h2>Right now</h2><span class="live-label"><i></i>LIVE MEASUREMENTS</span></div>
+      <section class="summary-grid" aria-label="Live measurements" id="summary"></section>
+      <section class="sensor-strip" aria-label="Sensor status" id="sensor-strip"></section>
+      <section id="measurements" class="trends-section">
+        <div class="section-heading trends-heading"><div><h2>Measurement history</h2><p id="history-description">History loads directly from the device.</p></div><div class="range-control" role="group" aria-label="History time range"><button data-hours="1">1 hour</button><button data-hours="6">6 hours</button><button class="selected" data-hours="24">24 hours</button></div></div>
+        <div class="trend-toolbar"><div class="filters" role="group" aria-label="Measurement category"><button class="selected" data-group="all">All measurements</button><button data-group="air">Air quality</button><button data-group="climate">Climate</button><button data-group="light">Light & UV</button></div><button id="export" class="button secondary small">Export CSV</button></div>
+        <div id="metric-grid" class="metric-grid"></div>
+        <div class="history-note"><span aria-hidden="true">◷</span><span id="history-note">Collecting device history. New readings appear automatically.</span></div>
+      </section>
+      <footer><span>air. <span class="footer-muted">A clearer picture of your environment.</span></span><span id="footer-device">air.local · USB Ethernet</span></footer>
+    </main>
+    <main id="settings-page" hidden>
+      <div class="page-heading"><div><div class="eyebrow">MAKE IT YOURS</div><h1>Device configuration.</h1><p>Fine-tune your station. Settings are saved on the device.</p></div><span class="chip">NUCLEO L496</span></div>
+      <form id="settings-form">
+        <div id="settings-fields" class="settings-grid"></div>
+        <div class="save-bar"><div><strong id="save-label">Settings are up to date</strong><p id="save-help">Changes apply after saving. No firmware rebuild needed.</p></div><button id="save" class="button primary" type="submit">Save to device</button></div>
+      </form>
+      <section class="memory-panel"><div><h2>Small device. Thoughtful storage.</h2><p>Compressed dashboard assets stay in flash. Charts run in your browser.</p></div><div id="memory-stats"></div></section>
+      <footer><span>air. <span class="footer-muted">Your settings stay with your station.</span></span><span><a id="device-link" href="http://air.local/">air.local</a> · <a href="/licenses.txt" target="_blank" rel="noopener">Licenses</a></span></footer>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

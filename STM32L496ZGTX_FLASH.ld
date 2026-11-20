@@ -42,8 +42,8 @@ MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 256K
   RAM2    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
-  /* Last 8 KiB reserved for the two BSEC calibration state slots. */
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1016K
+  /* Last 16 KiB: settings at FC000/FD000; BSEC at FE000/FF000. */
+  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1008K
 }
 
 /* Program-header permissions for modern linkers and ELF inspection tools. */
@@ -52,6 +52,7 @@ PHDRS
   flash PT_LOAD FLAGS(5); /* read + execute */
   ram   PT_LOAD FLAGS(6); /* read + write */
   ram_zero PT_LOAD FLAGS(6); /* zero-initialized RAM, no flash image */
+  history PT_LOAD FLAGS(6);
 }
 
 /* Sections */
@@ -167,6 +168,15 @@ SECTIONS
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
   } >RAM :ram_zero
+
+  .history_ram2 (NOLOAD) : AT(ADDR(.history_ram2))
+  {
+    . = ALIGN(4);
+    *(.history_ram2)
+    . = ALIGN(4);
+  } >RAM2 :history
+
+  ASSERT(LOADADDR(.data) + SIZEOF(.data) <= 0x08080000, "Flash settings writes require all code/constants in bank 1")
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack (NOLOAD) :

@@ -17,8 +17,17 @@ $aqsDns = @((Get-DnsClientServerAddress -InterfaceIndex $aqsIp.InterfaceIndex -A
 if ($aqsGateway.Count -or $aqsDns.Count) { throw 'USB unexpectedly has an IPv4 default gateway or DNS server.' }
 $aqsPing = @(Test-Connection -TargetName 192.168.7.1 -Count 3 -ErrorAction Stop)
 if (@($aqsPing | Where-Object { $_.Status.ToString() -ne 'Success' }).Count) { throw 'USB ping failed.' }
-$aqsFirst = Invoke-RestMethod 'http://192.168.7.1/api/measurements' -NoProxy -TimeoutSec 5
-if (($aqsFirst.valid_mask -band 0x3B) -ne 0x3B) { throw 'One or more sensor/IAQ sources are not valid.' }
+# Runtime setting changes restart the SCD30 cycle. Allow the documented
+# startup/recovery window before judging sensor availability.
+$aqsReadyDeadline = (Get-Date).AddSeconds(20)
+do {
+    $aqsFirst = Invoke-RestMethod 'http://192.168.7.1/api/measurements' -NoProxy -TimeoutSec 5
+    if (($aqsFirst.valid_mask -band 0x3B) -eq 0x3B -and
+        ($aqsFirst.fresh_mask -band 0x3B) -eq 0x3B) { break }
+    Start-Sleep -Milliseconds 500
+} while ((Get-Date) -lt $aqsReadyDeadline)
+if (($aqsFirst.valid_mask -band 0x3B) -ne 0x3B -or
+    ($aqsFirst.fresh_mask -band 0x3B) -ne 0x3B) { throw 'One or more sensor/IAQ sources did not produce fresh data within 20 seconds.' }
 $aqsLegacy = (Invoke-WebRequest 'http://192.168.7.1/measurements' -NoProxy -TimeoutSec 5).Content
 if ($aqsLegacy -notmatch '^MEAS_DATA SCD30: .+ BME680: .+ HONEYWELL: .+ VEML6070: .+ TCS: ') {
     throw 'The legacy measurement record is missing or malformed.'

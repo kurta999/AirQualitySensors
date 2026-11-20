@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "app_config.h"
+#include "device_config.h"
 #include "bosch_sensor.h"
 #include "cmsis_os.h"
 #include "i2c_bus.h"
@@ -167,6 +168,7 @@ void vApplicationMallocFailedHook(void)
 
 void MX_FREERTOS_Init(void)
 {
+    DeviceConfig_Init();
 #if APP_LCD_ENABLED
     osMutexDef(lcd_mutex);
     lcd_mutexHandle = osMutexCreate(osMutex(lcd_mutex));

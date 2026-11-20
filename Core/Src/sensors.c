@@ -1,6 +1,7 @@
 #include "sensors.h"
 
 #include "app_config.h"
+#include "device_config.h"
 #include "cmsis_os.h"
 #include "honeywell_sensor.h"
 #include "measurement_store.h"
@@ -79,15 +80,42 @@ void SensorsTask(void const* argument)
     SensorRetry_Reset(&scd30_state);
 #endif
 
+    DeviceConfig previous;
+    DeviceConfig_Get(&previous);
     for(;;)
     {
         TaskHealth_ReportAlive(TASK_HEALTH_SENSORS, osKernelSysTick());
+        DeviceConfig config;
+        DeviceConfig_Get(&config);
 
 #if APP_VEML6070_ENABLED
-        service_uv(&uv_state);
+        if(config.master_enabled && (config.sensor_mask & 8U))
+        {
+            if(config.uv_integration != previous.uv_integration) { SensorRetry_Reset(&uv_state); }
+            service_uv(&uv_state);
+        }
+        else
+        {
+            if(SensorRetry_IsInitialized(&uv_state)) { (void)VEML6070_Stop(); }
+            SensorRetry_Reset(&uv_state);
+            Measurements_Invalidate(MEASUREMENT_SOURCE_UV);
+        }
 #endif
 #if APP_SCD30_ENABLED
-        service_scd30(&scd30_state);
+        if(config.master_enabled && (config.sensor_mask & 1U))
+        {
+            if(config.scd_interval_s != previous.scd_interval_s || config.scd_pressure_mbar != previous.scd_pressure_mbar ||
+               config.scd_temperature_offset != previous.scd_temperature_offset || config.scd_altitude_m != previous.scd_altitude_m ||
+               config.scd_asc != previous.scd_asc || config.scd_recovery != previous.scd_recovery)
+            { SensorRetry_Reset(&scd30_state); Measurements_Invalidate(MEASUREMENT_SOURCE_SCD30); }
+            service_scd30(&scd30_state);
+        }
+        else
+        {
+            if(SensorRetry_IsInitialized(&scd30_state)) { (void)Scd30_Stop(); }
+            SensorRetry_Reset(&scd30_state);
+            Measurements_Invalidate(MEASUREMENT_SOURCE_SCD30);
+        }
 #endif
         /* The HPMA runs on UART4, not I2C1, but this is the loop that gives
          * it a periodic chance to recover from a stalled reception. */
@@ -95,6 +123,8 @@ void SensorsTask(void const* argument)
         Honeywell_Poll(osKernelSysTick());
 #endif
 
-        osDelay(SENSORS_LOOP_PERIOD_MS);
+        previous = config;
+        (void)previous;
+        osDelay(config.sensor_poll_ms);
     }
 }

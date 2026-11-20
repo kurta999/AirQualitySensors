@@ -23,5 +23,6 @@ typedef struct
 extern volatile UsbNetDiagnostics usb_net_diagnostics;
 void UsbNet_Task(void const* argument);
 void UsbNet_IrqHandler(void);
+void UsbNet_RequestSend(void);
 
 #endif

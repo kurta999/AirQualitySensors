@@ -2,6 +2,8 @@
 #if APP_USB_RNDIS_ENABLED
 
 #include "usb_net.h"
+#include "device_config.h"
+#include "device_web.h"
 #include "usb_dhcp.h"
 #include "cmsis_os.h"
 #include "main.h"
@@ -35,19 +37,6 @@ typedef struct { uint16_t length; uint8_t data[1514]; } EthernetFrame;
 static EthernetFrame transmit_queue[8];
 static unsigned int transmit_head;
 static unsigned int transmit_count;
-
-typedef struct
-{
-    struct tcp_pcb* pcb;
-    uint32_t started;
-    uint16_t request_length;
-    uint16_t reply_length;
-    uint16_t acknowledged;
-    uint8_t submitted;
-    char request[768];
-    char reply[2304];
-} HttpConnection;
-static HttpConnection http_connections[4];
 
 uint32_t sys_now(void) { return HAL_GetTick(); }
 uint32_t tusb_time_millis_api(void) { return HAL_GetTick(); }
@@ -122,9 +111,9 @@ static err_t link_output(struct netif* interface, struct pbuf* packet)
 static err_t interface_init(struct netif* interface)
 {
     interface->name[0] = 'u'; interface->name[1] = 's';
-    interface->hostname = "airquality";
+    interface->hostname = "air";
     interface->mtu = 1500;
-    interface->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
+    interface->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_IGMP;
     interface->output = etharp_output;
     interface->linkoutput = link_output;
     interface->hwaddr_len = 6;
@@ -206,175 +195,6 @@ static void dhcp_receive(void* argument, struct udp_pcb* pcb, struct pbuf* packe
     pbuf_free(packet);
 }
 
-static double finite_value(float value) { return isfinite(value) ? (double)value : 0.0; }
-
-static int format_json(char* output, size_t capacity)
-{
-    MeasurementSnapshot m;
-    Measurements_GetSnapshot(&m);
-    return snprintf(output, capacity,
-        "{\"uptime_ms\":%lu,\"valid_mask\":%lu,"
-        "\"scd30\":{\"co2_ppm\":%.2f,\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"timestamp_ms\":%lu},"
-        "\"bme680\":{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"pressure_hpa\":%.2f,\"gas_ohm\":%lu,\"timestamp_ms\":%lu},"
-        "\"uv_raw\":%u,\"light\":{\"lux\":%u,\"color_temperature_k\":%u},"
-        "\"iaq\":{\"index\":%.2f,\"accuracy\":%u,\"stabilized\":%u,\"run_in\":%u,\"timestamp_ms\":%lu},"
-        "\"usb\":{\"dhcp_replies\":%lu,\"tcp_connected\":%lu,\"records_sent\":%lu,\"acknowledged_bytes\":%lu}}\n",
-        (unsigned long)m.snapshot_timestamp_ms, (unsigned long)m.valid_mask,
-        finite_value(m.scd30_co2_ppm), finite_value(m.scd30_temperature_c), finite_value(m.scd30_relative_humidity_percent),
-        (unsigned long)m.timestamp_ms[MEASUREMENT_SOURCE_SCD30],
-        finite_value(m.bme680_temperature_c), finite_value(m.bme680_relative_humidity_percent), finite_value(m.bme680_pressure_hpa),
-        (unsigned long)m.bme680_gas_resistance_ohm, (unsigned long)m.timestamp_ms[MEASUREMENT_SOURCE_BME680],
-        (unsigned int)m.uv_raw, (unsigned int)m.lux, (unsigned int)m.color_temperature_k,
-        finite_value(m.air_quality.index), (unsigned int)m.air_quality.accuracy,
-        (unsigned int)m.air_quality.stabilized, (unsigned int)m.air_quality.run_in,
-        (unsigned long)m.timestamp_ms[MEASUREMENT_SOURCE_IAQ],
-        (unsigned long)usb_net_diagnostics.dhcp_replies, (unsigned long)usb_net_diagnostics.client_connected,
-        (unsigned long)usb_net_diagnostics.records_sent, (unsigned long)usb_net_diagnostics.acknowledged_bytes);
-}
-
-static void http_release(HttpConnection* connection)
-{
-    connection->pcb = NULL;
-}
-static void http_error(void* argument, err_t error)
-{
-    (void)error;
-    http_release(argument);
-}
-static err_t http_close(HttpConnection* connection)
-{
-    struct tcp_pcb* pcb = connection->pcb;
-    tcp_arg(pcb, NULL); tcp_err(pcb, NULL); tcp_recv(pcb, NULL); tcp_sent(pcb, NULL); tcp_poll(pcb, NULL, 0);
-    http_release(connection);
-    if(tcp_close(pcb) != ERR_OK) { tcp_abort(pcb); return ERR_ABRT; }
-    return ERR_OK;
-}
-static err_t http_sent(void* argument, struct tcp_pcb* pcb, u16_t length)
-{
-    (void)pcb;
-    HttpConnection* connection = argument;
-    connection->acknowledged = (uint16_t)(connection->acknowledged + length);
-    if(connection->acknowledged >= connection->reply_length) { return http_close(connection); }
-    return ERR_OK;
-}
-static err_t http_poll(void* argument, struct tcp_pcb* pcb)
-{
-    HttpConnection* connection = argument;
-    if(HAL_GetTick() - connection->started > 10000U) { return http_close(connection); }
-    if(connection->reply_length != 0U && !connection->submitted)
-    {
-        if(tcp_write(pcb, connection->reply, connection->reply_length, TCP_WRITE_FLAG_COPY) == ERR_OK)
-        {
-            connection->submitted = 1;
-            (void)tcp_output(pcb);
-        }
-    }
-    return ERR_OK;
-}
-static err_t http_reply(HttpConnection* connection)
-{
-    static char body[1536];
-    const char* type = "application/json";
-    const char* status = "200 OK";
-    int length;
-    ++usb_net_diagnostics.http_requests;
-    if(strncmp(connection->request, "GET /api/measurements ", 22) == 0)
-    {
-        length = format_json(body, sizeof(body));
-    }
-    else if(strncmp(connection->request, "GET /measurements ", 18) == 0)
-    {
-        MeasurementSnapshot snapshot;
-        Measurements_GetSnapshot(&snapshot);
-        length = Measurements_Format(body, sizeof(body), &snapshot);
-        type = "text/plain";
-    }
-    else if(strncmp(connection->request, "GET / ", 6) == 0)
-    {
-        static const char page[] = "<!doctype html><meta charset=utf-8><title>Air quality sensors</title>"
-            "<h1>Air quality sensors</h1><p>Connected over USB.</p><pre id=v>Loading measurements...</pre>"
-            "<script>async function update(){try{const r=await fetch('/api/measurements',{cache:'no-store'});"
-            "v.textContent=JSON.stringify(await r.json(),null,2)}catch(e){v.textContent='Connection lost'}}"
-            "update();setInterval(update,2000)</script>";
-        memcpy(body, page, sizeof(page));
-        length = sizeof(page) - 1U;
-        type = "text/html; charset=utf-8";
-    }
-    else
-    {
-        status = "404 Not Found"; type = "text/plain";
-        memcpy(body, "Not found\n", 11U); length = 10;
-    }
-    if(length < 0 || (size_t)length >= sizeof(body)) { status = "500 Internal Server Error"; length = 0; }
-    const int header = snprintf(connection->reply, sizeof(connection->reply),
-        "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-        status, type, length);
-    if(header < 0 || (size_t)header + (size_t)length > sizeof(connection->reply)) { return http_close(connection); }
-    memcpy(connection->reply + header, body, (size_t)length);
-    connection->reply_length = (uint16_t)(header + length);
-    return http_poll(connection, connection->pcb);
-}
-static err_t http_receive(void* argument, struct tcp_pcb* pcb, struct pbuf* packet, err_t error)
-{
-    HttpConnection* connection = argument;
-    if(packet == NULL) { return http_close(connection); }
-    if(error != ERR_OK) { pbuf_free(packet); return ERR_OK; }
-    const u16_t length = packet->tot_len;
-    tcp_recved(pcb, length);
-    if(connection->reply_length == 0U)
-    {
-        if(length >= sizeof(connection->request) - connection->request_length)
-        {
-            pbuf_free(packet);
-            return http_close(connection);
-        }
-        pbuf_copy_partial(packet, connection->request + connection->request_length, length, 0);
-        connection->request_length = (uint16_t)(connection->request_length + length);
-        connection->request[connection->request_length] = 0;
-        /* Preserve the companion application's existing force-send command. */
-        static const char force_send[] = "SEND_SENSOR_DATA";
-        size_t command_length = connection->request_length;
-        while(command_length != 0U && (connection->request[command_length - 1U] == '\r' ||
-              connection->request[command_length - 1U] == '\n')) { --command_length; }
-        if(command_length == sizeof(force_send) - 1U &&
-           memcmp(connection->request, force_send, sizeof(force_send) - 1U) == 0)
-        {
-            last_sent = HAL_GetTick() - APP_MEASUREMENT_SEND_INTERVAL_MS;
-            reconnect_at = HAL_GetTick();
-            pbuf_free(packet);
-            return http_close(connection);
-        }
-        if(strstr(connection->request, "\r\n\r\n") != NULL)
-        {
-            const err_t result = http_reply(connection);
-            pbuf_free(packet);
-            return result;
-        }
-    }
-    pbuf_free(packet);
-    return ERR_OK;
-}
-static err_t http_accept(void* argument, struct tcp_pcb* pcb, err_t error)
-{
-    (void)argument;
-    if(error != ERR_OK) { return error; }
-    for(unsigned int i = 0; i < 4U; ++i)
-    {
-        HttpConnection* connection = &http_connections[i];
-        if(connection->pcb == NULL)
-        {
-            memset(connection, 0, sizeof(*connection));
-            connection->pcb = pcb;
-            connection->started = HAL_GetTick();
-            tcp_arg(pcb, connection); tcp_err(pcb, http_error); tcp_recv(pcb, http_receive);
-            tcp_sent(pcb, http_sent); tcp_poll(pcb, http_poll, 2);
-            return ERR_OK;
-        }
-    }
-    tcp_abort(pcb);
-    return ERR_ABRT;
-}
-
 static void receiver_error(void* argument, err_t error)
 {
     (void)argument;
@@ -393,7 +213,9 @@ static err_t receiver_received(void* argument, struct tcp_pcb* pcb, struct pbuf*
         tcp_err(pcb, NULL);
         if(tcp_close(pcb) != ERR_OK) { tcp_abort(pcb); return ERR_ABRT; }
         /* The existing PC receiver closes after each measurement record. */
-        reconnect_at = last_sent + APP_MEASUREMENT_SEND_INTERVAL_MS;
+        DeviceConfig config;
+        DeviceConfig_Get(&config);
+        reconnect_at = last_sent + config.send_interval_ms;
         return ERR_OK;
     }
     tcp_recved(pcb, packet->tot_len);
@@ -420,20 +242,33 @@ static err_t receiver_connected(void* argument, struct tcp_pcb* pcb, err_t error
 static void send_measurements(void)
 {
     const uint32_t now = HAL_GetTick();
+    static DeviceConfig previous;
+    DeviceConfig config;
+    DeviceConfig_Get(&config);
+    if(config.receiver_enabled != previous.receiver_enabled || config.receiver_port != previous.receiver_port ||
+       strcmp(config.receiver_ip, previous.receiver_ip) != 0)
+    {
+        if(receiver != NULL) { tcp_abort(receiver); receiver = NULL; }
+        usb_net_diagnostics.client_connected = 0;
+        reconnect_at = now;
+    }
+    previous = config;
+    if(!config.receiver_enabled) { return; }
     if(!tud_ready() || !netif_is_link_up(&usb_interface)) { return; }
     if(receiver == NULL && (int32_t)(now - reconnect_at) >= 0)
     {
         receiver = tcp_new();
         if(receiver != NULL)
         {
-            ip_addr_t address; IP_ADDR4(&address, client_ip[0], client_ip[1], client_ip[2], client_ip[3]);
+            ip_addr_t address;
+            if(!ipaddr_aton(config.receiver_ip, &address)) { tcp_abort(receiver); return; }
             tcp_err(receiver, receiver_error);
-            const err_t result = tcp_connect(receiver, &address, APP_SERVER_PORT, receiver_connected);
+            const err_t result = tcp_connect(receiver, &address, (uint16_t)config.receiver_port, receiver_connected);
             if(result != ERR_OK) { tcp_abort(receiver); }
         }
         reconnect_at = now + 5000U;
     }
-    if(usb_net_diagnostics.client_connected && receiver != NULL && now - last_sent >= APP_MEASUREMENT_SEND_INTERVAL_MS)
+    if(usb_net_diagnostics.client_connected && receiver != NULL && now - last_sent >= config.send_interval_ms)
     {
         MeasurementSnapshot snapshot;
         char record[MEASUREMENT_FORMAT_MAX_LEN];
@@ -447,6 +282,14 @@ static void send_measurements(void)
             (void)tcp_output(receiver);
         }
     }
+}
+
+void UsbNet_RequestSend(void)
+{
+    DeviceConfig config;
+    DeviceConfig_Get(&config);
+    last_sent = HAL_GetTick() - config.send_interval_ms;
+    reconnect_at = HAL_GetTick();
 }
 
 void UsbNet_Task(void const* argument)
@@ -469,11 +312,7 @@ void UsbNet_Task(void const* argument)
     if(dhcp == NULL || udp_bind(dhcp, IP_ADDR_ANY, 67) != ERR_OK) { Error_Handler(); }
     udp_bind_netif(dhcp, &usb_interface);
     udp_recv(dhcp, dhcp_receive, NULL);
-    struct tcp_pcb* http = tcp_new();
-    if(http == NULL || tcp_bind(http, IP_ADDR_ANY, 80) != ERR_OK) { Error_Handler(); }
-    http = tcp_listen(http);
-    if(http == NULL) { Error_Handler(); }
-    tcp_accept(http, http_accept);
+    DeviceWeb_Start(&usb_interface);
     usb_hardware_init();
     const tusb_rhport_init_t init = {.role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_FULL};
     if(!tusb_init(0, &init)) { Error_Handler(); }
@@ -483,6 +322,7 @@ void UsbNet_Task(void const* argument)
         TaskHealth_ReportAlive(TASK_HEALTH_USB_NET, osKernelSysTick());
         tud_task_ext(0, false);
         sys_check_timeouts();
+        DeviceWeb_Service();
         send_measurements();
         if(transmit_count != 0U && tud_ready() && tud_network_can_xmit(transmit_queue[transmit_head].length))
         {

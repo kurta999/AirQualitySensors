@@ -8,6 +8,7 @@
 #include "bosch_sensor.h"
 #include "cmsis_os.h"
 #include "measurement_store.h"
+#include "device_config.h"
 
 #include <string.h>
 
@@ -103,9 +104,11 @@ int8_t BsecProcessing_Init(void)
 static void save_state_if_due(void)
 {
     const uint32_t now = osKernelSysTick();
+    DeviceConfig config;
+    DeviceConfig_Get(&config);
     const uint8_t requested = bsec_diagnostics.save_requested != 0U;
     const uint8_t due = latest.accuracy > saved_accuracy ||
-        (latest.accuracy != 0U && (now - last_state_save_ms) >= APP_BSEC_STATE_SAVE_INTERVAL_MS);
+        (latest.accuracy != 0U && (now - last_state_save_ms) >= config.bsec_save_interval_s * 1000U);
     if(!requested && !due) { return; }
     bsec_diagnostics.save_requested = 0U;
     uint32_t length = 0U;
@@ -155,7 +158,9 @@ static int8_t process_measurement(const struct bme680_field_data* data)
     input_add(inputs, &count, BSEC_INPUT_TEMPERATURE, data->temperature / 100.0F);
     input_add(inputs, &count, BSEC_INPUT_HUMIDITY, data->humidity / 1000.0F);
     input_add(inputs, &count, BSEC_INPUT_GASRESISTOR, (float)data->gas_resistance);
-    input_add(inputs, &count, BSEC_INPUT_HEATSOURCE, APP_BSEC_HEAT_SOURCE_C);
+    DeviceConfig config;
+    DeviceConfig_Get(&config);
+    input_add(inputs, &count, BSEC_INPUT_HEATSOURCE, config.bsec_heat_offset / 100.0F);
     input_add(inputs, &count, BSEC_INPUT_PROFILE_PART, 0.0F);
     uint8_t output_count = sizeof(outputs) / sizeof(outputs[0]);
     const bsec_library_return_t status = bsec_do_steps(inputs, count, outputs, &output_count);

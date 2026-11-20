@@ -22,12 +22,15 @@ measurement record to the host's `APP_SERVER_PORT` (default 2005) every
 `APP_MEASUREMENT_SEND_INTERVAL_MS`. A receiver can keep the TCP connection
 open or close it after each record.
 
-Port 80 serves read-only HTTP GETs: `/` is the live page, `/measurements`
+Port 80 serves the gzip dashboard at `/` (also reachable as `air.local`), `/measurements`
 returns the positional record, and `/api/measurements` returns JSON with
 validity, timestamps, sensor readings, IAQ accuracy/run-in status, and USB
 transport counters. The exact `SEND_SENSOR_DATA` command, optionally ending
 in CR/LF, requests an immediate TCP push on the same port. Other remote
 commands, including MCU reset, are not implemented on this USB endpoint.
+`GET /api/config`, same-origin `POST /api/config`, and paged binary
+`GET /api/history?after=0` provide runtime settings and up to 24 h of history.
+See [dashboard.md](dashboard.md) for validation, flash layout, and wire schema.
 
 ## Keyboard gateway messages
 
