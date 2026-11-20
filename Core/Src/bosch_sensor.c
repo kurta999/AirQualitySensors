@@ -4,6 +4,9 @@
 
 #include "app_config.h"
 #include "bme680/bme680.h"
+#if APP_BSEC_ENABLED
+#include "bsec_processing.h"
+#endif
 #include "cmsis_os.h"
 #include "light_sensor.h"
 #include "main.h"
@@ -20,6 +23,7 @@ extern SPI_HandleTypeDef hspi2;
 
 #if APP_BME680_ENABLED
 static struct bme680_dev gas_sensor;
+volatile Bme680Diagnostics bme680_diagnostics;
 
 static void sensor_delay_ms(uint32_t period)
 {
@@ -43,6 +47,9 @@ static int8_t sensor_spi_read(uint8_t device_id, uint8_t register_address,
         status = HAL_SPI_Receive(&hspi2, register_data, length, 350U);
     }
     HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_SET);
+    bme680_diagnostics.spi_error = HAL_SPI_GetError(&hspi2);
+    bme680_diagnostics.last_read_register = register_address;
+    bme680_diagnostics.last_read_value = register_data[0];
     return status == HAL_OK ? BME680_OK : BME680_E_COM_FAIL;
 }
 
@@ -81,6 +88,10 @@ static int8_t initialize_bme680(uint16_t* measurement_period_ms)
         return status;
     }
 
+#if APP_BSEC_ENABLED
+    *measurement_period_ms = 50U;
+    return BsecProcessing_Init();
+#else
     gas_sensor.tph_sett.os_hum = BME680_OS_2X;
     gas_sensor.tph_sett.os_pres = BME680_OS_4X;
     gas_sensor.tph_sett.os_temp = BME680_OS_8X;
@@ -103,6 +114,7 @@ static int8_t initialize_bme680(uint16_t* measurement_period_ms)
         bme680_get_profile_dur(measurement_period_ms, &gas_sensor);
     }
     return status;
+#endif
 }
 
 /*
@@ -113,20 +125,39 @@ static void service_bme680(SensorRetryState* state, uint16_t* measurement_period
 {
     if(SensorRetry_IsInitialized(state) == 0U)
     {
-        if(initialize_bme680(measurement_period_ms) != BME680_OK)
+        ++bme680_diagnostics.init_attempts;
+        const int8_t init_status = initialize_bme680(measurement_period_ms);
+        bme680_diagnostics.init_status = init_status;
+        bme680_diagnostics.chip_id = gas_sensor.chip_id;
+        if(init_status != BME680_OK)
         {
             return;
         }
         SensorRetry_ReportInitialized(state);
-        /* Forced mode has just been armed; the conversion is read next
-         * iteration, once the profile duration has elapsed. */
+        /* Raw mode arms a conversion here; BSEC schedules it on a later poll. */
         return;
     }
 
-    struct bme680_field_data measurement = {0};
-    const int8_t status = bme680_get_sensor_data(&measurement, &gas_sensor);
+#if APP_BSEC_ENABLED
+    const int8_t status = BsecProcessing_Service(&gas_sensor);
     if(status == BME680_OK)
     {
+        SensorRetry_ReportSuccess(state);
+    }
+    else if(status != BSEC_SERVICE_IDLE && SensorRetry_ReportFailure(state) != 0U)
+    {
+        Measurements_Invalidate(MEASUREMENT_SOURCE_BME680);
+        Measurements_Invalidate(MEASUREMENT_SOURCE_IAQ);
+    }
+#else
+    struct bme680_field_data measurement = {0};
+    const int8_t status = bme680_get_sensor_data(&measurement, &gas_sensor);
+    bme680_diagnostics.read_status = status;
+    bme680_diagnostics.field_status = measurement.status;
+    if(status == BME680_OK)
+    {
+        ++bme680_diagnostics.sample_count;
+        bme680_diagnostics.last_sample_ms = osKernelSysTick();
         SensorRetry_ReportSuccess(state);
         Measurements_UpdateBme680(
             measurement.temperature / 100.0F,
@@ -143,8 +174,9 @@ static void service_bme680(SensorRetryState* state, uint16_t* measurement_period
 
     if(gas_sensor.power_mode == BME680_FORCED_MODE)
     {
-        (void)bme680_set_sensor_mode(&gas_sensor);
+        bme680_diagnostics.trigger_status = bme680_set_sensor_mode(&gas_sensor);
     }
+#endif
 }
 
 #endif
@@ -184,6 +216,9 @@ void SensorsBme680Task(void const* argument)
 #if APP_TCS34725_ENABLED
     SensorRetryState tcs34725_state;
     SensorRetry_Reset(&tcs34725_state);
+#if APP_BSEC_ENABLED
+    uint32_t next_light_poll_ms = 0U;
+#endif
 #endif
 
     for(;;)
@@ -202,7 +237,16 @@ void SensorsBme680Task(void const* argument)
         }
 #endif
 #if APP_TCS34725_ENABLED
+#if APP_BSEC_ENABLED
+        const uint32_t now = osKernelSysTick();
+        if((int32_t)(now - next_light_poll_ms) >= 0)
+        {
+            service_tcs34725(&tcs34725_state);
+            next_light_poll_ms = now + 1000U;
+        }
+#else
         service_tcs34725(&tcs34725_state);
+#endif
 #endif
         osDelay(period_ms);
     }

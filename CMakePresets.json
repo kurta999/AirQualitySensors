@@ -47,11 +47,25 @@
       }
     },
     {
+      "name": "nucleo-sensors",
+      "inherits": "nucleo-i2c",
+      "cacheVariables": {
+        "AQS_BME680_ENABLED": "ON"
+      }
+    },
+    {
       "name": "release",
       "inherits": "default",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_EXPORT_COMPILE_COMMANDS": true
+      }
+    },
+    {
+      "name": "nucleo-bsec",
+      "inherits": "nucleo-sensors",
+      "cacheVariables": {
+        "AQS_BSEC_ENABLED": "ON"
       }
     },
     {
@@ -65,6 +79,14 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "nucleo-bsec",
+      "configurePreset": "nucleo-bsec"
+    },
+    {
+      "name": "nucleo-sensors",
+      "configurePreset": "nucleo-sensors"
+    },
     {
       "name": "nucleo-i2c",
       "configurePreset": "nucleo-i2c"

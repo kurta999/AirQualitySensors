@@ -9,7 +9,7 @@
 # Local firmware configuration (contains credentials)
 /Core/Inc/app_config.local.h
 
-# Legacy local-only/proprietary assets (not part of the open-source build)
+# Local vendor packages and legacy proprietary assets (not committed)
 /asdas/
 /libalgobsec.a
 /libalgobsec.lib

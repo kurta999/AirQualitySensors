@@ -28,6 +28,9 @@
 /* Entry Point */
 ENTRY(Reset_Handler)
 
+/* Flash state is programmed in bank 2 while interrupts execute from bank 1. */
+ASSERT(_etext <= 0x08080000, "Executable code exceeds bank 1; BSEC state writes require bank-1 code")
+
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM);	/* end of "RAM" Ram type memory */
 
@@ -39,7 +42,8 @@ MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 256K
   RAM2    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K
+  /* Last 8 KiB reserved for the two BSEC calibration state slots. */
+  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1016K
 }
 
 /* Program-header permissions for modern linkers and ELF inspection tools. */

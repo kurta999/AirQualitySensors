@@ -1,4 +1,6 @@
 param(
+    [ValidateSet('nucleo-i2c', 'nucleo-sensors', 'nucleo-bsec')]
+    [string]$Preset = 'nucleo-i2c',
     [switch]$AttachOnly,
     [switch]$NoBuild,
     [int]$Port = 3333
@@ -27,14 +29,15 @@ try {
         $aqsOriginalPath = $env:PATH
         try {
             $env:PATH = "$(Split-Path $aqsNinja);$env:PATH"
-            & $aqsCmake --preset nucleo-i2c
+            & $aqsCmake --preset $Preset
             if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed.' }
-            & $aqsCmake --build --preset nucleo-i2c --parallel
+            & $aqsCmake --build --preset $Preset --parallel
             if ($LASTEXITCODE -ne 0) { throw 'Firmware build failed.' }
         } finally { $env:PATH = $aqsOriginalPath }
     }
-    $aqsElf = 'build/nucleo-i2c/AirQualitySensors.elf'
-    if (-not (Test-Path $aqsElf)) { throw "Missing $aqsElf; build the nucleo-i2c preset first." }
+    $aqsBuildDir = "build/$Preset"
+    $aqsElf = "$aqsBuildDir/AirQualitySensors.elf"
+    if (-not (Test-Path $aqsElf)) { throw "Missing $aqsElf; build the $Preset preset first." }
     $aqsConnection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     $aqsServerProcess = $null
     if (-not $aqsConnection) {
@@ -42,8 +45,8 @@ try {
         $aqsMode = if ($AttachOnly) { '-g' } else { '-k' }
         $aqsServerProcess = Start-Process -FilePath $aqsServer -WindowStyle Hidden -PassThru `
             -ArgumentList @('-d', '-e', $aqsMode, '-p', $Port, '--frequency', '1000', '-cp', "`"$aqsProgrammerDir`"") `
-            -RedirectStandardOutput 'build/nucleo-i2c/stlink-server.log' `
-            -RedirectStandardError 'build/nucleo-i2c/stlink-server-error.log'
+            -RedirectStandardOutput "$aqsBuildDir/stlink-server.log" `
+            -RedirectStandardError "$aqsBuildDir/stlink-server-error.log"
         $aqsDeadline = [DateTime]::UtcNow.AddSeconds(15)
         do {
             if ($aqsServerProcess.HasExited) { throw 'ST-LINK server exited; inspect stlink-server.log.' }
@@ -63,14 +66,16 @@ try {
         'print measurements',
         'print scd30_diagnostics',
         'print hi2c1.ErrorCode',
-        'print/x *(unsigned int*)0x48000410',
-        'end'
+        'print/x *(unsigned int*)0x48000410'
     )
+    if ($Preset -ne 'nucleo-i2c') { $aqsStartup += 'print bme680_diagnostics' }
+    if ($Preset -eq 'nucleo-bsec') { $aqsStartup += 'print bsec_diagnostics' }
+    $aqsStartup += 'end'
     if (-not $AttachOnly) { $aqsStartup += @('tbreak main', 'continue') }
-    $aqsStartup | Set-Content 'build/nucleo-i2c/debug.gdb' -Encoding ascii
+    $aqsStartup | Set-Content "$aqsBuildDir/debug.gdb" -Encoding ascii
     Write-Host 'GDB: continue to run; Ctrl+C to pause; sensors to print readings; quit to leave.'
     try {
-        & $aqsGdb -q $aqsElf -x 'build/nucleo-i2c/debug.gdb'
+        & $aqsGdb -q $aqsElf -x "$aqsBuildDir/debug.gdb"
     } finally {
         if ($aqsServerProcess -and -not $aqsServerProcess.HasExited) {
             Stop-Process -Id $aqsServerProcess.Id

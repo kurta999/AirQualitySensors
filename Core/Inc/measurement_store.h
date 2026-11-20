@@ -15,11 +15,25 @@ typedef enum
     MEASUREMENT_SOURCE_PARTICLE,
     MEASUREMENT_SOURCE_UV,
     MEASUREMENT_SOURCE_LIGHT,
+    MEASUREMENT_SOURCE_IAQ,
     MEASUREMENT_SOURCE_COUNT
 } MeasurementSource;
 
 /** Readings older than this are reported as stale by Measurements_IsFresh(). */
 #define MEASUREMENT_DEFAULT_MAX_AGE_MS 15000U
+
+typedef struct
+{
+    float index;
+    float static_index;
+    float co2_equivalent_ppm;
+    float breath_voc_equivalent_ppm;
+    float temperature_c;
+    float relative_humidity_percent;
+    uint8_t accuracy;
+    uint8_t stabilized;
+    uint8_t run_in;
+} IaqMeasurement;
 
 typedef struct
 {
@@ -38,6 +52,7 @@ typedef struct
     float blue;
     uint16_t color_temperature_k;
     uint16_t lux;
+    IaqMeasurement air_quality;
 
     /** Tick at which each source last produced a reading. */
     uint32_t timestamp_ms[MEASUREMENT_SOURCE_COUNT];
@@ -56,6 +71,7 @@ void Measurements_UpdateBme680(float temperature_c, float relative_humidity_perc
 void Measurements_UpdateParticleFromIsr(uint16_t pm25_ug_m3, uint16_t pm10_ug_m3,
                                         uint32_t timestamp_ms);
 void Measurements_UpdateUv(uint16_t uv_raw, uint32_t timestamp_ms);
+void Measurements_UpdateIaq(const IaqMeasurement* air_quality, uint32_t timestamp_ms);
 void Measurements_UpdateLight(float red, float green, float blue,
                               uint16_t color_temperature_k, uint16_t lux,
                               uint32_t timestamp_ms);

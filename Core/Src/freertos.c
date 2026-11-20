@@ -219,7 +219,11 @@ void MX_FREERTOS_Init(void)
 #endif
 
 #if APP_BME_LIGHT_TASK_ENABLED
+#if APP_BSEC_ENABLED
+    osThreadDef(SensorsBme680, SensorsBme680Task, osPriorityBelowNormal, 0U, 2048U);
+#else
     osThreadDef(SensorsBme680, SensorsBme680Task, osPriorityBelowNormal, 0U, 768U);
+#endif
     SensorsBme680Handle = osThreadCreate(osThread(SensorsBme680), NULL);
 #endif
 

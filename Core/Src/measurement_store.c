@@ -57,6 +57,15 @@ void Measurements_UpdateUv(uint16_t uv_raw, uint32_t timestamp_ms)
     taskEXIT_CRITICAL();
 }
 
+void Measurements_UpdateIaq(const IaqMeasurement* air_quality, uint32_t timestamp_ms)
+{
+    if(air_quality == NULL) { return; }
+    taskENTER_CRITICAL();
+    measurements.air_quality = *air_quality;
+    mark_valid(MEASUREMENT_SOURCE_IAQ, timestamp_ms);
+    taskEXIT_CRITICAL();
+}
+
 void Measurements_UpdateLight(float red, float green, float blue,
                               uint16_t color_temperature_k, uint16_t lux,
                               uint32_t timestamp_ms)

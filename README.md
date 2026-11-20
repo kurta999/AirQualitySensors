@@ -16,6 +16,7 @@ The configured target is an **STM32L476ZGTx (Cortex-M4F, LQFP144)**. Pin assignm
 - ST7565 128×64 status display
 - USB HID keyboard host with UART forwarding
 - Optional ESP32 Wi-Fi/TCP transport, disabled by default
+- Optional Bosch BSEC IAQ processing on the Nucleo L496, with persistent calibration state
 - FreeRTOS task separation and synchronized measurement snapshots
 - Debug, Release, and Wi-Fi-check CMake presets, host-side unit tests, and GitHub Actions CI
 
@@ -103,6 +104,70 @@ device header, and linker layout (1 MB flash, 256 KB SRAM1, 64 KB SRAM2).
 `App_HardwareInit()` owns selectable peripheral/pin startup; protected user
 blocks bypass CubeMX's full initialization list. After CubeMX regeneration,
 keep `app_hardware.c` in the project and use the matching CMake preset.
+
+## Adding the BME680 to the Nucleo test
+
+Use the `nucleo-sensors` preset to enable BME680 on SPI2 alongside the three
+I2C sensors, with the remaining hardware disabled:
+
+```powershell
+cmake --preset nucleo-sensors
+cmake --build --preset nucleo-sensors --parallel
+./scripts/Debug-Nucleo.ps1 -Preset nucleo-sensors
+```
+
+Wire SCK to PB10, SDO/MISO to PC2, SDI/MOSI to PC3, and CS to PF12,
+with common ground and power appropriate for the sensor breakout. The GDB
+`sensors` command also prints `bme680_diagnostics`, including chip ID,
+initialization result, SPI error code, and sample count. A BME680 chip ID is
+`0x61`; all four sensors producing samples sets `measurements.valid_mask`
+to `0x1B`. If BME680 cannot initialize, the other sensors keep running and
+the BME680 is retried about once a second.
+
+## Bosch BSEC indoor air quality on the Nucleo
+
+The `nucleo-bsec` preset runs Bosch BSEC **2.6.1.0** on the STM32L496 together
+with all four connected sensors. Install the pinned official package locally:
+
+```powershell
+./scripts/Install-Bsec.ps1
+cmake --preset nucleo-bsec
+cmake --build --preset nucleo-bsec --parallel
+./scripts/Debug-Nucleo.ps1 -Preset nucleo-bsec
+```
+
+The installer verifies SHA-256 hashes and preserves Bosch's license notices.
+The package remains in the ignored `libs/bsec/` directory; it is not part of
+the project's MIT license. The firmware links the Cortex-M4F GCC hard-float
+archive and the BME680 3.3 V, 3 s, four-day-history configuration. BSEC controls
+oversampling, heater temperature/duration, and measurement timing. Raw sensor
+profiles are available through the other presets.
+
+In GDB, Ctrl+C and `sensors` shows `bsec_diagnostics` and
+`measurements.air_quality`, including IAQ (0–500), accuracy (0–3), stabilization,
+run-in, static IAQ, estimated CO2/VOC equivalents, and heat-compensated
+temperature/humidity. A new result arrives about every 3 s. Accuracy **0** means
+run-in/calibration is incomplete; an initial IAQ of 50 is not a calibrated
+air-quality assessment. Let the board run continuously in representative air
+conditions. The SCD30 continues providing the independently measured CO2 value.
+The BSEC CO2-equivalent output is a gas-based estimate. `APP_BSEC_HEAT_SOURCE_C`
+(default 0) permits a measured, device-specific additional temperature offset.
+
+The legacy `MEAS_DATA` record retains its field order and meaning. IAQ is added
+to the synchronized in-memory snapshot with its own validity/timestamp, not
+inserted into the positional UART/TCP record. With all four sensors and IAQ
+producing data, `valid_mask` is `0x3B`. A present IAQ value still needs its
+accuracy/run-in flags checked before use.
+
+BSEC state is saved when accuracy improves, then every 6 h while accuracy is
+nonzero. Two 4 KiB slots at `0x080FE000` and `0x080FF000` alternate records with
+sequence numbers, CRC-32, configuration/version identification, and a final
+commit marker. The L496 linker reserves the last 8 KiB in every preset so
+ordinary firmware downloads preserve state. A chip mass erase removes it.
+Storage checks the 1 MiB dual-bank, unswapped flash layout before erasing. A
+debugger can set `bsec_diagnostics.save_requested=1` to request a one-off save
+through the running task; normal operation requires no debugger interaction.
+Restore/save status and counters are exposed in `bsec_diagnostics`.
 
 ## Backend
 

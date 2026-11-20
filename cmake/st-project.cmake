@@ -4,6 +4,9 @@ function(add_st_target_properties target_name)
     set(app_sources
         Core/Src/app_hardware.c
         Core/Src/bosch_sensor.c
+        Core/Src/bsec_processing.c
+        Core/Src/bsec_state_record.c
+        Core/Src/bsec_state_store.c
         Core/Src/freertos.c
         Core/Src/honeywell_sensor.c
         Core/Src/i2c_bus.c
@@ -118,6 +121,27 @@ function(add_st_target_properties target_name)
     elseif(NOT AQS_HARDWARE_ENABLED)
         target_compile_definitions(${target_name} PRIVATE
             APP_CONFIG_IGNORE_LOCAL APP_HARDWARE_ENABLED=0 APP_WIFI_ENABLED=0)
+    endif()
+
+    if(AQS_BME680_ENABLED)
+        target_compile_definitions(${target_name} PRIVATE APP_BME680_ENABLED=1)
+    endif()
+
+    if(AQS_BSEC_ENABLED)
+        set(bsec_archive "${BSEC_ROOT}/src/cortex-m4/fpv4-sp-d16-hard/libalgobsec.a")
+        if(NOT EXISTS "${bsec_archive}" OR NOT EXISTS "${BSEC_ROOT}/src/inc/bsec_interface.h")
+            message(FATAL_ERROR "Missing Bosch BSEC package. Run scripts/Install-Bsec.ps1 first.")
+        endif()
+        file(SHA256 "${bsec_archive}" bsec_hash)
+        if(NOT bsec_hash STREQUAL "ad831fcb676e7cafd491542b2277b773113ce5f92ec022945bebb53dd8595650")
+            message(FATAL_ERROR "Unexpected BSEC binary; install the pinned package with scripts/Install-Bsec.ps1")
+        endif()
+        add_library(BoschBsec STATIC IMPORTED)
+        set_target_properties(BoschBsec PROPERTIES IMPORTED_LOCATION "${bsec_archive}")
+        target_link_libraries(${target_name} PRIVATE BoschBsec)
+        target_compile_definitions(${target_name} PRIVATE APP_BSEC_ENABLED=1)
+        target_include_directories(${target_name} PRIVATE "${BSEC_ROOT}/src/inc"
+            "${BSEC_ROOT}/src/config/bme680/bme680_iaq_33v_3s_4d")
     endif()
 
     # Compile-only Wi-Fi configuration. The default build leaves APP_WIFI_ENABLED

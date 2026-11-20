@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "circbuff/circbuff.h"
+#include "bsec_state_record.h"
 #include "hpma/hpma_parser.h"
 #include "measurement_format.h"
 #include "measurement_store.h"
@@ -316,6 +317,39 @@ static void test_task_health(void)
     TaskHealth_Reset();
 }
 
+static void test_bsec_state_records(void)
+{
+    static const uint8_t payload[] = {1U, 4U, 9U, 16U, 25U};
+    BsecStateRecord first;
+    BsecStateRecord second;
+    CHECK(BsecState_Crc32("123456789", 9U) == UINT32_C(0xCBF43926));
+    CHECK(BsecStateRecord_Create(&first, 17U, UINT32_MAX, payload, sizeof(payload)) == 0);
+    CHECK(BsecStateRecord_Create(&second, 17U, 0U, payload, sizeof(payload)) == 0);
+    CHECK(BsecStateRecord_Valid(&first, 17U));
+    CHECK(!BsecStateRecord_Valid(&first, 18U));
+    CHECK(BsecStateRecord_Latest(&first, &second, 17U) == 1);
+    second.payload[2] ^= 1U;
+    CHECK(BsecStateRecord_Latest(&first, &second, 17U) == 0);
+    CHECK(BsecStateRecord_Create(&second, 17U, 1U, payload, sizeof(payload)) == 0);
+    second.length = UINT32_MAX;
+    CHECK(!BsecStateRecord_Valid(&second, 17U));
+    CHECK(BsecStateRecord_Create(&second, 17U, 1U, payload, sizeof(payload)) == 0);
+    second.sequence ^= 1U;
+    CHECK(!BsecStateRecord_Valid(&second, 17U));
+    CHECK(BsecStateRecord_Create(&second, 17U, 1U, payload, sizeof(payload)) == 0);
+    /* Every interrupted doubleword write must leave the old record usable. */
+    BsecStateRecord interrupted;
+    for(size_t written = 0U; written < sizeof(second); written += 8U)
+    {
+        memset(&interrupted, 0xFF, sizeof(interrupted));
+        memcpy(&interrupted, &second, written);
+        CHECK(!BsecStateRecord_Valid(&interrupted, 17U));
+        CHECK(BsecStateRecord_Latest(&first, &interrupted, 17U) == 0);
+    }
+    CHECK(BsecStateRecord_Create(&second, 17U, 2U, payload, 0U) != 0);
+    CHECK(BsecStateRecord_Create(&second, 17U, 2U, payload, BSEC_STATE_PAYLOAD_CAPACITY + 1U) != 0);
+}
+
 int main(void)
 {
     test_crc16();
@@ -327,6 +361,7 @@ int main(void)
     test_measurement_validity();
     test_sensor_retry();
     test_task_health();
+    test_bsec_state_records();
 
     if(failures != 0U)
     {

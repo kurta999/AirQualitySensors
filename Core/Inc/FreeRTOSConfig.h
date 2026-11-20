@@ -149,6 +149,11 @@ standard names. */
 
 
 /* USER CODE BEGIN Defines */
+#include "app_config.h"
+#if APP_BSEC_ENABLED
+#undef configTOTAL_HEAP_SIZE
+#define configTOTAL_HEAP_SIZE ((size_t)32768)
+#endif
 /* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
 /* USER CODE END Defines */
 

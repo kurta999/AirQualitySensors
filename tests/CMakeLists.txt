@@ -10,6 +10,7 @@ enable_testing()
 
 add_executable(air_quality_tests
     test_main.c
+    ../Core/Src/bsec_state_record.c
     ../Core/Src/measurement_format.c
     ../Core/Src/measurement_view.c
     ../Core/Src/protocol.c
