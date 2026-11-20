@@ -2,9 +2,26 @@
 
 [![Build and test](https://github.com/kurta999/AirQualitySensors/actions/workflows/build.yml/badge.svg)](https://github.com/kurta999/AirQualitySensors/actions/workflows/build.yml)
 
-STM32 firmware for an air-quality sensor hub and USB keyboard gateway. It samples five environmental sensors, renders the latest values on an ST7565 LCD, forwards measurements over UART, and can optionally send them through an ESP32 AT-command module over TCP.
+STM32 environmental sensor firmware with a dashboard served directly by the
+device. The tested **NUCLEO-L496ZG** setup reads SCD30, BME680, TCS34725, and
+VEML6070 sensors, calculates Bosch BSEC indoor air quality, and connects to a PC
+as a USB Ethernet adapter. Open **[air.local](http://air.local/)** or
+**[192.168.7.1](http://192.168.7.1/)** for live readings, graphs, and configuration.
 
-The configured target is an **STM32L476ZGTx (Cortex-M4F, LQFP144)**. Pin assignments and generated peripherals live in [AirQualitySensors.ioc](AirQualitySensors.ioc); the full pin map and per-peripheral configuration are documented in [Pinout and hardware connections](#pinout-and-hardware-connections) at the end of this file. Measurements are consumed by the companion desktop application, [WindowsAddon](https://github.com/kurta999/WindowsAddon) — see [Backend](#backend).
+The original **STM32L476ZG** design remains supported, including its ST7565 LCD,
+USB keyboard gateway, HPMA particle sensor, UART output, and optional ESP32 Wi-Fi
+transport. [AirQualitySensors.ioc](AirQualitySensors.ioc) describes that original
+design; the Nucleo presets select the L496 startup, memory layout, and attached
+peripherals. Use the preset matching your board. The existing
+[WindowsAddon](https://github.com/kurta999/WindowsAddon) receiver remains compatible.
+
+![Live air quality dashboard served by the Nucleo over USB Ethernet](docs/screenshots/dashboard-overview.png)
+
+[Nucleo quick start](#nucleo-usb-quick-start) ·
+[Build profiles](#build-profiles) ·
+[Dashboard and screenshots](#device-dashboard) ·
+[Troubleshooting](#troubleshooting) ·
+[Pinout](#pinout-and-hardware-connections)
 
 ## Features
 
@@ -17,8 +34,13 @@ The configured target is an **STM32L476ZGTx (Cortex-M4F, LQFP144)**. Pin assignm
 - USB HID keyboard host with UART forwarding
 - Optional ESP32 Wi-Fi/TCP transport, disabled by default
 - Optional Bosch BSEC IAQ processing on the Nucleo L496, with persistent calibration state
+- USB RNDIS Ethernet with a device-side DHCP server, replacing Wi-Fi on the Nucleo USB profile
+- Offline dashboard at the device IP or `air.local`, with 22 measurement/status graphs and CSV export
+- Flash-saved sensor switches, sampling, compensation, history, and PC receiver settings
+- Up to 24 hours of measurement history in a fixed SRAM2 ring buffer
+- TypeScript frontend with locally bundled Chart.js and gzip assets streamed from flash
 - FreeRTOS task separation and synchronized measurement snapshots
-- Debug, Release, and Wi-Fi-check CMake presets, host-side unit tests, and GitHub Actions CI
+- Eight CMake build profiles, host/frontend tests, real-board checks, and GitHub Actions CI
 
 ## Prerequisites
 
@@ -27,12 +49,59 @@ The configured target is an **STM32L476ZGTx (Cortex-M4F, LQFP144)**. Pin assignm
 - GNU Arm Embedded toolchain (`arm-none-eabi-gcc`, `arm-none-eabi-objcopy`, and related tools)
 - Optional: STM32CubeIDE/CubeMX for editing the `.ioc` configuration
 - Optional: STM32CubeProgrammer or an IDE debugger for flashing
+- PowerShell 7 and the STM32CubeIDE/ST-LINK tools for the supplied Windows debug/network scripts
+- Node.js 22 or newer and npm when rebuilding the frontend; firmware-only builds use the checked-in gzip assets
+- Installed Google Chrome for the optional browser tests and screenshot capture
 
 The toolchain file searches `PATH` and common STM32CubeIDE installation locations. For a custom installation, set `ARM_TOOLCHAIN_PATH` to the toolchain's `bin` directory:
 
 ```powershell
 $env:ARM_TOOLCHAIN_PATH = 'C:\path\to\arm-gnu-toolchain\bin'
 ```
+
+## Nucleo USB quick start
+
+The verified wiring uses **NUCLEO-L496ZG / STM32L496ZGT6**, four sensors, and
+two USB data cables. No LCD, particle sensor, keyboard, or ESP32 is required.
+
+| Connection | Nucleo pins / connector | Power in the tested setup |
+| --- | --- | --- |
+| TCS34725 color sensor | I2C1 SCL **PB8**, SDA **PB9** | 3V3 and GND |
+| VEML6070 UV sensor | I2C1 SCL **PB8**, SDA **PB9** | 3V3 and GND |
+| SCD30 CO₂ sensor | I2C1 SCL **PB8**, SDA **PB9** | **5V** to the breakout supply input, common GND |
+| BME680 | SPI2 SCK **PB10**, SDO/MISO **PC2**, SDI/MOSI **PC3**, CS **PF12** | 3V3 and GND |
+| Native USB device connection | **CN13** to the PC with a data cable | USB Ethernet/dashboard |
+| ST-LINK connection | Onboard ST-LINK USB connector to the PC | Programming and debugging |
+
+Keep the I2C signal pull-ups at **3.3 V**, including when the SCD30 supply is
+5 V. Check the power labels and regulator/level-shifting arrangement of your
+particular breakout. The Nucleo presets enable weak internal pull-ups and a
+slower bus for bring-up; external pull-ups give more reliable signal edges.
+
+From the repository root, install the pinned BSEC package, then build and flash:
+
+```powershell
+./scripts/Install-Bsec.ps1
+./scripts/Debug-Nucleo.ps1 -Preset nucleo-usb
+```
+
+The debug script finds installed STM32CubeIDE tools, configures/builds the
+correct image, flashes it, and opens GDB stopped at startup. At the GDB prompt:
+
+```text
+continue
+```
+
+Windows should create a **Remote NDIS Compatible Device** adapter and receive
+`192.168.7.2/30` automatically. Open [http://air.local/](http://air.local/) or
+[http://192.168.7.1/](http://192.168.7.1/). Allow the sensors a few seconds to
+start; BSEC accuracy is displayed separately while the algorithm learns.
+The page works without a PC receiver application or Internet connection.
+
+Use **Configuration → Save to device** to apply settings and retain them in
+flash. The master sensor switch pauses all attached sensors while leaving USB
+and the configuration page available. Settings that affect SCD30 restart its
+measurement cycle, so its readings briefly show as waiting.
 
 ## Build
 
@@ -52,25 +121,46 @@ For the optimized build, replace `debug` with `release`. Each build produces the
 
 The repository also remains importable in STM32CubeIDE. CMake is the reproducible build used by CI and is the recommended command-line path.
 
+### Build profiles
+
+| Preset | MCU | Enabled hardware / purpose |
+| --- | --- | --- |
+| `nucleo-usb` | STM32L496ZG | Four sensors, BSEC, USB RNDIS/DHCP, mDNS, dashboard, settings, history; Wi-Fi and USB host off |
+| `nucleo-bsec` | STM32L496ZG | Four sensors with BSEC and persistent calibration; no USB network |
+| `nucleo-sensors` | STM32L496ZG | Three I2C sensors plus raw BME680 on SPI2 |
+| `nucleo-i2c` | STM32L496ZG | SCD30, VEML6070, and TCS34725 on PB8/PB9 |
+| `hardware-off` | STM32L496ZG | Optional application hardware/tasks disabled; scheduler, SWD, and status LEDs remain |
+| `debug` | STM32L476ZG | Original hardware configuration, debug symbols, Wi-Fi off |
+| `release` | STM32L476ZG | Optimized original hardware configuration, Wi-Fi off |
+| `wifi-check` | STM32L476ZG | Compile-check of the ESP32 path with placeholder credentials; not a deployment profile |
+
+`nucleo-bsec` and `nucleo-usb` require `scripts/Install-Bsec.ps1`. Nucleo
+profiles ignore `app_config.local.h` and explicitly select their peripherals.
+USB device networking, USB keyboard host mode, and ESP32 Wi-Fi are mutually
+exclusive in the USB profile.
+
 ## Nucleo with only the I2C sensors
 
 The `nucleo-i2c` preset targets **NUCLEO-L496ZG (STM32L496ZG)** with only
 TCS34725, VEML6070, and SCD30 enabled on I2C1: **PB8 = SCL, PB9 = SDA**, common GND,
-and sensor power from 3V3. External I2C pull-ups to 3V3 are required (often
+and a common ground. The tested color/UV breakouts use 3V3, while the SCD30
+supply input is connected to Nucleo 5V. External I2C pull-ups to 3V3 are required (often
 already fitted on sensor breakout boards).
 The bring-up preset sets `APP_I2C1_INTERNAL_PULLUPS=1` as a weak fallback
 and `APP_I2C1_TIMING=0x3090F9F9U` (about 20 kHz with the 40 MHz peripheral
-clock). This combination was needed for both attached sensors to communicate
+clock). This combination was needed for the attached sensors to communicate
 on the tested wiring. Use external pull-ups for reliable bus rise times.
 The SCD30 uses a 2 s measurement interval and a 250 ms transfer timeout to
 allow its specified clock stretching, with a settling delay after start.
 The preset enables `APP_SCD30_RECOVERY_ENABLED`: initialization soft-resets
 the sensor, waits 2 s, reads its firmware version, stops measurement, sets and
-reads back the interval, then restarts. If no sample arrives for 30 s, polling
+reads back the interval, then restarts. If no sample arrives for the configured
+interval × 2 plus 30 s, polling
 reports an error so the existing five-failure retry policy reinitializes it.
 `scd30_diagnostics` exposes reset/sample counters and command results in GDB.
-This sequence restored measurements on the connected SCD30 without changing
-its calibration settings.
+The initialization also applies the configured temperature offset, altitude,
+and automatic self-calibration setting, reading persisted sensor settings first
+to avoid unnecessary writes.
 
 ```powershell
 cmake --preset nucleo-i2c
@@ -147,8 +237,8 @@ In GDB, Ctrl+C and `sensors` shows `bsec_diagnostics` and
 `measurements.air_quality`, including IAQ (0–500), accuracy (0–3), stabilization,
 run-in, static IAQ, estimated CO2/VOC equivalents, and heat-compensated
 temperature/humidity. A new result arrives about every 3 s. Accuracy **0** means
-run-in/calibration is incomplete; an initial IAQ of 50 is not a calibrated
-air-quality assessment. Let the board run continuously in representative air
+run-in/calibration is incomplete; an IAQ value with accuracy 0 is provisional.
+Let the board run continuously in representative air
 conditions. The SCD30 continues providing the independently measured CO2 value.
 The BSEC CO2-equivalent output is a gas-based estimate. `APP_BSEC_HEAT_SOURCE_C`
 (default 0) permits a measured, device-specific additional temperature offset.
@@ -162,8 +252,9 @@ accuracy/run-in flags checked before use.
 BSEC state is saved when accuracy improves, then every 6 h while accuracy is
 nonzero. Two 4 KiB slots at `0x080FE000` and `0x080FF000` alternate records with
 sequence numbers, CRC-32, configuration/version identification, and a final
-commit marker. The L496 linker reserves the last 8 KiB in every preset so
-ordinary firmware downloads preserve state. A chip mass erase removes it.
+commit marker. The L496 linker reserves the last **16 KiB** in every preset:
+8 KiB for dashboard settings, followed by these 8 KiB for BSEC state.
+Ordinary firmware downloads preserve both; a chip mass erase removes them.
 Storage checks the 1 MiB dual-bank, unswapped flash layout before erasing. A
 debugger can set `bsec_diagnostics.save_requested=1` to request a one-off save
 through the running task; normal operation requires no debugger interaction.
@@ -241,11 +332,97 @@ BSEC heat offset/state-save interval, color/UV integration, history, and the
 PC receiver. Save explicitly writes verified settings to flash and applies them.
 Build-time MCU/peripheral capabilities and the direct USB subnet remain fixed.
 
+### Screenshots
+
+These are captures from the running Nucleo with real sensor readings. Values,
+history length, and BSEC accuracy depend on the environment and device uptime.
+The overview is shown at the top of this README.
+
+**Measurement history:** each measurement has its own graph, with category
+filters, a selectable time window, and CSV export.
+
+![Individual sensor measurement graphs on the device dashboard](docs/screenshots/dashboard-measurements.png)
+
+**Configuration:** sensor controls, sampling/history, compensation, and receiver
+settings are saved explicitly to the device.
+
+![Device configuration page showing station, sensor, and history settings](docs/screenshots/dashboard-configuration.png)
+
+<details>
+<summary>Mobile overview</summary>
+
+<img src="docs/screenshots/dashboard-mobile.png" alt="Responsive mobile dashboard with live air quality, CO2, temperature, and humidity readings" width="390">
+
+</details>
+
+### Runtime settings and defaults
+
+| Configuration group | Default behavior |
+| --- | --- |
+| Station and sensors | Hostname `air.local`, label `Air station`, all four attached sensors enabled |
+| SCD30 | 2 s measurement interval, 1 s polling, pressure/temperature/altitude offsets 0, automatic self-calibration and recovery enabled |
+| BME680/BSEC | BSEC-managed 3 s schedule, extra heat offset 0 °C, calibration saved on accuracy improvement and every 6 h while accuracy is nonzero |
+| TCS34725 | 4× gain, 21 integration cycles (about 50 ms), 1 s read interval |
+| VEML6070 | 4T integration, 1 s polling; readings are raw UV counts |
+| PC receiver | Enabled, `192.168.7.2:2005`, one legacy measurement record every 1500 ms |
+| History | Automatic 150 s sampling, up to 24 h, 600-record RAM budget |
+
+The exact ranges and API field names are in [docs/dashboard.md](docs/dashboard.md).
+Offsets shown in hundredths of a degree use `100 = 1.00 °C`. Sensor switches
+stop measurement activity and invalidate current readings. They do not remove
+the compiled drivers or change physical pin assignments.
+
+### History and persistence
+
 History uses **57,600 bytes of SRAM2**, holding 600 records with all 21 values
 and BSEC status. Automatic sampling records every 150 seconds for up to 24 h;
 faster selectable intervals reduce retention. History restarts on power loss
 or interval changes. Settings and BSEC calibration survive ordinary reflashing.
 The gzip dashboard is streamed from flash; it is never decompressed in MCU RAM.
+
+The browser refreshes live measurements about every 2 s and overlays the latest
+reading between recorded history points. The 1/6/24-hour controls select the
+display window; **History sampling** controls the device's recording interval.
+Closing the browser does not stop recording. Restarting the MCU or changing
+the history interval starts a new history buffer.
+
+| Recording interval | Maximum retained history |
+| --- | --- |
+| Automatic / 150 s | 24 h |
+| 60 s | About 10 h |
+| 30 s | About 5 h |
+| 15 s | About 2.5 h |
+| 5 s | About 50 min |
+| 5 min or slower | Up to 24 h, with fewer points |
+
+Missing/stale measurements appear as gaps. SCD30 CO₂ is measured independently;
+BSEC CO₂-equivalent and VOC-equivalent are estimates. BSEC accuracy 0 means the
+algorithm is still learning. VEML6070 raw counts are not a calibrated UV index.
+
+Settings use alternating flash records with sequence numbers, CRC32, and a
+final commit marker. Settings occupy `0x080FC000`/`0x080FD000`; BSEC calibration
+occupies `0x080FE000`/`0x080FF000`. An interrupted settings save can retain the
+previous valid record. Unchanged settings do not trigger another flash erase.
+History is held in RAM and is not written to those flash slots.
+
+### Memory budget
+
+Measured for the tested `nucleo-usb` build; sizes change as firmware evolves.
+Configuration and `/api/config` expose the current image and RAM reservations.
+
+| Allocation | Size | Location / available space |
+| --- | --- | --- |
+| Complete firmware image | 293,584 bytes (about 287 KiB) | Flash; 1008 KiB available after persistence reservations |
+| Gzip HTML, JavaScript, CSS, and licenses | 71,871 bytes (about 70 KiB), included in the image above | Flash; build enforces a 110 KiB gzip budget |
+| Main static RAM | 137,180 bytes (about 134 KiB) | SRAM1, 256 KiB total; includes the RTOS heap/stacks and network buffers |
+| History ring | 57,600 bytes (600 × 96) | SRAM2, 64 KiB total |
+| Settings + BSEC slots | 16 KiB | Reserved flash, separate from the firmware image |
+
+Chart.js runs on the PC/browser. The MCU streams compressed assets directly
+from flash and exports history in small pages; neither the full uncompressed
+page nor a day's JSON response is allocated in device RAM.
+
+### Rebuilding the webpage
 
 To rebuild the checked-in firmware assets after changing `web/src/`:
 
@@ -261,14 +438,32 @@ cmake --build --preset nucleo-usb --parallel
 `web/build.mjs` type-checks through the npm script, bundles only the Chart.js
 components used, gzips the assets, and generates `Core/Src/web_assets.c`.
 Firmware-only builds use that checked-in C file without requiring Node.
+Commit `Core/Src/web_assets.c` alongside frontend edits so the next firmware
+build includes the updated page. `web/dist/manifest.json` lists the gzip sizes
+and hashes; `web/dist/` and `web/node_modules/` are ignored build/dependency files.
 See [docs/dashboard.md](docs/dashboard.md) for memory/layout details, API
 contracts, build checks, and the real-board browser test.
+
+To refresh the README screenshots from a running board without saving or
+changing any device settings:
+
+```powershell
+node web/capture-screenshots.mjs
+```
+
+This uses installed Chrome and writes `docs/screenshots/`. Set
+`$env:AIR_DEVICE_URL = 'http://192.168.7.1'` to capture through the IP address
+instead of the default `http://air.local`.
 
 ## Backend
 
 Measurements are received by [WindowsAddon](https://github.com/kurta999/WindowsAddon), a Windows tray toolbox that also serves as the sensor backend for this firmware. It runs the TCP server the device reports to, stores the average of the measurements in a configured integration period in an SQLite database, and generates graphs from recent measurements plus daily and weekly averages. The graphs are served at `your_local_ip:2005/graphs` and can be viewed from any device on the network, including a phone.
 
-Point the firmware at it with `APP_SERVER_ADDRESS` and `APP_SERVER_PORT` (see below); the default port `2005` matches its listener. The same measurement record also goes out on USART2, so the backend can be fed over the wired link instead of Wi-Fi.
+On `nucleo-usb`, set the receiver address/port and reporting interval in the
+dashboard's **Configuration → PC receiver** section. The default USB destination
+is `192.168.7.2:2005`. The original UART/Wi-Fi profiles use `APP_SERVER_ADDRESS`
+and `APP_SERVER_PORT`; their USART2 link can also feed the backend. The embedded
+dashboard operates independently of the backend and its SQLite storage.
 
 The record is a shared wire format documented in [docs/protocol.md](docs/protocol.md). The receiver reads its values positionally, so changing the order, count or spacing of the fields breaks the backend even though the firmware still builds. The host test suite pins the exact record to catch that.
 
@@ -282,10 +477,23 @@ The committed defaults in [app_config.h](Core/Inc/app_config.h) disable Wi-Fi an
 
 `app_config.local.h` is ignored by Git. Never commit real credentials. Wi-Fi transport is plain TCP, so use it only on a trusted network or put an authenticated, encrypted gateway in front of the device. Remote reset commands remain disabled unless explicitly enabled.
 
+These macros select compiled capabilities or supply initial defaults. On the
+USB profile, saved runtime settings take precedence for user-facing sensor and
+receiver options. Use the webpage to change an existing saved configuration.
+The original Wi-Fi profile still requires rebuilding for credentials/transport.
+
 Available configuration macros:
 
 | Macro | Safe default | Purpose |
 | --- | --- | --- |
+| `APP_HARDWARE_ENABLED` | `1` | Master build-time default for optional hardware; minimal Nucleo profiles set it to 0 and explicitly enable attached devices |
+| `APP_SCD30_ENABLED`, `APP_BME680_ENABLED`, `APP_TCS34725_ENABLED`, `APP_VEML6070_ENABLED` | Master hardware default | Include the attached sensor drivers/tasks |
+| `APP_HPMA_ENABLED`, `APP_LCD_ENABLED`, `APP_HOST_UART_ENABLED`, `APP_ADC_ENABLED`, `APP_I2C3_ENABLED`, `APP_WATCHDOG_ENABLED` | Master hardware default | Select optional original-board peripherals |
+| `APP_BSEC_ENABLED` | `0` | Link BSEC; requires BME680 and the installed Bosch package |
+| `APP_BSEC_HEAT_SOURCE_C` / `APP_BSEC_STATE_SAVE_INTERVAL_MS` | `0.0` / `21600000` | Initial BSEC heat offset and calibration-save interval |
+| `APP_USB_RNDIS_ENABLED` | `0` | Include USB Ethernet/DHCP/dashboard; enabled by `nucleo-usb` |
+| `APP_USB_HOST_ENABLED` | Master hardware default | USB keyboard host; disabled in the USB device profile |
+| `APP_I2C1_INTERNAL_PULLUPS` / `APP_I2C1_TIMING` | `0` / `0x00909BEB` | Build-time bus setup; Nucleo profiles select `1` / `0x3090F9F9` |
 | `APP_WIFI_ENABLED` | `0` | Build and start Wi-Fi tasks |
 | `APP_WIFI_SSID` / `APP_WIFI_PASSWORD` | empty | Access-point credentials |
 | `APP_SERVER_ADDRESS` | `192.0.2.1` | Measurement receiver address |
@@ -293,6 +501,7 @@ Available configuration macros:
 | `APP_ALLOW_REMOTE_RESET` | `0` | Accept the ESP32 `RESET` command |
 | `APP_MEASUREMENT_SEND_INTERVAL_MS` | `1500` | UART/Wi-Fi reporting interval |
 | `APP_SCD30_AMBIENT_PRESSURE_MBAR` | `0` | SCD30 pressure compensation; `0` disables it |
+| `APP_SCD30_RECOVERY_ENABLED` | `0` | Initial soft-reset/stall-recovery setting; Nucleo profiles enable it |
 
 ## Tests
 
@@ -304,31 +513,87 @@ cmake --build build/host-tests --parallel
 ctest --test-dir build/host-tests --output-on-failure
 ```
 
-GitHub Actions runs these tests and all three firmware presets on every push and pull request. The `wifi-check` preset compiles the ESP32 code path with placeholder credentials, which the Wi-Fi-disabled default builds never reach. Hardware behavior still needs validation on the target board, especially sensor availability, bus timing, display orientation, USB power switching, watchdog timing, and ESP32 firmware compatibility.
+The host suite also covers settings validation, HTTP framing/origin checks,
+flash record corruption/interrupted writes, history pagination/retention/tick
+wrap, sensor retry, and task-health behavior. Frontend decoder tests run with
+`npm test` in `web/`.
+
+GitHub Actions runs the host tests, the dashboard type-check/build/size checks
+and decoder tests, and **all eight firmware presets** on pushes and pull
+requests. `wifi-check` compiles the ESP32 path with placeholder credentials.
+CI does not replace physical sensor or network testing.
+
+For the attached Nucleo and PC:
+
+```powershell
+./scripts/Test-UsbNetwork.ps1 -RequireReceiver
+node web/test-device.mjs
+node web/test-http.mjs
+# After checking persistence across an MCU reset, restore the original intervals:
+node web/test-device.mjs --restore
+```
+
+The USB check waits up to 20 s for fresh readings and verifies DHCP, ping,
+HTTP, advancing measurements, and receiver acknowledgements. Omit
+`-RequireReceiver` if no PC receiver is running. The browser test temporarily
+selects 5 s history and 2 s reporting and exercises save/disable/resume;
+the HTTP test temporarily changes hostname/sensor settings and restores them.
+Reports/test screenshots are written to ignored `build/nucleo-usb/`.
+README screenshots use the separate read-only capture command above.
 
 ## Architecture
 
 ```text
-sensor tasks / HPMA ISR
-          │
-          ▼
- synchronized MeasurementSnapshot
-      ┌───┴──────────────┐
-      ▼                  ▼
- ST7565 UI       bounded text formatter
-                         │
-                   UART2 / ESP32 TCP
-                         │
-                         ▼
-                  WindowsAddon backend
-                   (SQLite + graphs)
+ sensor tasks / optional HPMA ISR
+                  │
+                  ▼
+       synchronized MeasurementSnapshot
+          ┌───────┼───────────────────────┐
+          ▼       ▼                       ▼
+    optional   legacy text          USB network task
+    ST7565 UI  formatter            ├─ DHCP + mDNS
+                  │                 ├─ HTTP live API
+        UART2 / ESP32 / USB TCP     ├─ SRAM2 history ring
+                  │                 ├─ flash-saved settings
+                  ▼                 └─ gzip dashboard in flash
+           WindowsAddon                       │
+         (SQLite + graphs)                    ▼
+                                   browser / local Chart.js
 ```
 
 Application code is under `Core/`, reusable drivers are under `libs/`, generated STM32 and USB support is under `Drivers/`, `Middlewares/`, and `USB_HOST/`, and build logic is under `cmake/`. See [docs/protocol.md](docs/protocol.md) for wire formats.
 
 ## Flashing and debugging
 
-Flash `build/debug/AirQualitySensors.elf`, `.hex`, or `.bin` with STM32CubeProgrammer or your normal ST-LINK workflow. The VS Code launch configuration expects the STM32 embedded tools extension and a local ST-LINK GDB server. Do not flash this image to a different MCU without updating the device define, startup file, linker script, CubeMX configuration, and memory layout together.
+Flash `build/<matching-preset>/AirQualitySensors.elf`, `.hex`, or `.bin` with
+STM32CubeProgrammer or ST-LINK. For the current USB setup, use `nucleo-usb`;
+`build/debug/` targets the original L476 board. The VS Code launch configuration
+expects the STM32 embedded tools extension and a local ST-LINK GDB server.
+
+```powershell
+./scripts/Debug-Nucleo.ps1 -Preset nucleo-usb -AttachOnly
+```
+
+`-AttachOnly` inspects the running firmware without downloading it again.
+In GDB, Ctrl+C pauses execution, `sensors` prints snapshots/diagnostics, and
+`continue` resumes. While the core is halted, USB networking and sensor tasks
+are halted too. Ordinary sector-based ELF/HEX downloads preserve the reserved
+settings/BSEC slots; avoid a full-chip erase when preserving those records. Do not use an image
+built for another MCU/startup/linker layout.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| No USB Ethernet adapter | Use a data cable on **CN13**, keep the ST-LINK cable for debugging, and flash `nucleo-usb`. The original USB-host profile does not expose a network adapter. |
+| IP address does not open | Check that the PC adapter received `192.168.7.2/30`, the subnet is not already in use, and GDB is running with `continue`. The device is `192.168.7.1`. |
+| `air.local` does not resolve | Try the IP URL first. mDNS is separate from DHCP DNS settings; the USB interface intentionally has no DNS server. A renamed hostname can take time to leave the PC resolver cache. |
+| SCD30 reads as waiting | Verify supply/common ground and PB8/PB9, enable it in Configuration, and allow its restart/measurement cycle to finish after changing settings. Check `scd30_diagnostics` if it stays stalled. |
+| BME680 is missing | Recheck **SCK → PB10**, SDO/MISO → PC2, SDI/MOSI → PC3, CS → PF12. Its chip ID is `0x61`; GDB exposes SPI/init/sample diagnostics. |
+| UV reads zero indoors | Zero can be a valid raw reading. Check the online state and advancing source timestamp before treating it as a fault. |
+| IAQ is 0/50 or accuracy is 0 | Read accuracy, stabilization, and run-in status. A fresh BSEC output can still be provisional; it is separate from the measured SCD30 CO₂ reading. |
+| Few graph points / history disappeared | Automatic recording is every 150 s. A restart or interval change clears RAM history; selecting a faster interval reduces retention. Closing the browser does not clear it. |
+| PC receiver is disconnected | Verify the dashboard receiver address/port, that the PC application listens there, and that its traffic is allowed. Dashboard access works independently of that receiver. |
 
 ## Contributing and security
 
@@ -340,7 +605,13 @@ Project-authored code is released under the [MIT License](LICENSE). Bundled vend
 
 ## Pinout and hardware connections
 
-Everything below is taken from the checked-in configuration: pin assignments come from [AirQualitySensors.ioc](AirQualitySensors.ioc) and the generated initialisation code in `Core/Src/` (`gpio.c`, `i2c.c`, `spi.c`, `usart.c`, `tim.c`, `adc.c`, `iwdg.c`, `dma.c`), and the pin labels come from the `*_Pin` / `*_GPIO_Port` macros in [Core/Inc/main.h](Core/Inc/main.h). Sensor addresses, bus speeds and CS handling come from the drivers that use them.
+The tables below are the original-board wiring reference, with Nucleo/USB
+overrides called out where relevant. Assignments come from
+[AirQualitySensors.ioc](AirQualitySensors.ioc), generated `Core/Src/` peripheral
+code, and the pin labels in [Core/Inc/main.h](Core/Inc/main.h). Enabled
+peripherals are selected by [app_hardware.c](Core/Src/app_hardware.c), the
+matching build preset, and protected initialization overrides. A listed pin
+does not mean that peripheral is active in every profile.
 
 Target: **STM32L476ZGTx**, Cortex-M4F, LQFP144, 42 pins configured. Confirm voltage levels, pull-ups, sensor addresses and power requirements against each component's datasheet before connecting hardware.
 
@@ -355,6 +626,7 @@ Target: **STM32L476ZGTx**, Cortex-M4F, LQFP144, 42 pins configured. Confirm volt
 | ESP32 AT module | USART3 + DMA | PC4 TX, PC5 RX, PC1 enable |
 | Keyboard / measurement gateway UART | USART2 | PA2 TX, PA3 RX |
 | USB HID host | USB OTG FS | PA11 DM, PA12 DP, PG6 VBUS enable |
+| USB RNDIS device (`nucleo-usb`) | USB OTG FS / CN13 | PA11 DM, PA12 DP, PA9 VBUS sense; PG6 held low |
 | Spare I2C | I2C3 | PC0 SCL, PG8 SDA |
 | Analog input | ADC1_IN16 | PB1 |
 | Indicator LEDs | GPIO | PC7, PB7, PB14, PD4–PD7 |
@@ -369,15 +641,16 @@ Target: **STM32L476ZGTx**, Cortex-M4F, LQFP144, 42 pins configured. Confirm volt
 | PA2 | USART2_TX | AF7 | Push-pull AF, very high speed | `UART_KBD_TX` | Keystroke + measurement records to the host |
 | PA3 | USART2_RX | AF7 | Push-pull AF, very high speed | `UART_KBD_RX` | Host link (receive side) |
 | PA7 | SPI1_MOSI | AF5 | Push-pull AF, very high speed | — | ST7565 LCD data (half-duplex, no MISO) |
-| PA11 | USB_OTG_FS_DM | AF10 | Push-pull AF | — | USB HID host D− |
-| PA12 | USB_OTG_FS_DP | AF10 | Push-pull AF | — | USB HID host D+ |
+| PA9 | USB VBUS sense | — | Input in USB device mode | — | CN13 host power detection in `nucleo-usb` |
+| PA11 | USB_OTG_FS_DM | AF10 | Push-pull AF | — | USB D−; HID host or RNDIS device, depending on preset |
+| PA12 | USB_OTG_FS_DP | AF10 | Push-pull AF | — | USB D+; HID host or RNDIS device, depending on preset |
 | PA13 | SYS_JTMS-SWDIO | — | Trace async SW | — | SWD debug |
 | PA14 | SYS_JTCK-SWCLK | — | Trace async SW | — | SWD debug |
 | PB1 | ADC1_IN16 | — | `GPIO_MODE_ANALOG_ADC_CONTROL` | — | Analog input, rank 1 of the ADC sequence (see [ADC1](#adc1-pb1)) |
 | PB3 | SYS_JTDO-SWO | — | Trace async SW | — | SWO trace; `printf`/`ITM_SendChar` output |
 | PB7 | GPIO output | — | Push-pull, no pull, low speed | `ULED_2` | Startup blink in `main()` |
-| PB8 | I2C1_SCL | AF4 | Open-drain AF, very high speed, **no internal pull** | — | Sensor I2C clock |
-| PB9 | I2C1_SDA | AF4 | Open-drain AF, very high speed, **no internal pull** | — | Sensor I2C data |
+| PB8 | I2C1_SCL | AF4 | Open-drain AF; weak internal pull-up in Nucleo profiles | — | Sensor I2C clock |
+| PB9 | I2C1_SDA | AF4 | Open-drain AF; weak internal pull-up in Nucleo profiles | — | Sensor I2C data |
 | PB10 | SPI2_SCK | AF5 | Push-pull AF, very high speed | — | BME680 clock |
 | PB12 | GPIO output | — | Push-pull, no pull, low speed | `LCD_A0` | ST7565 data/command select |
 | PB13 | GPIO output | — | Push-pull, no pull, low speed | `LCD_RES` | ST7565 reset |
@@ -404,21 +677,23 @@ Port G is powered from VDDIO2, so `MX_GPIO_Init()` calls `HAL_PWREx_EnableVddIO2
 
 ### I2C1 — sensor bus (PB8 SCL, PB9 SDA)
 
-- Timing word `0x00909BEB`, 7-bit addressing, analog filter enabled, digital filter 0, no clock stretching disable.
-- Pins are open-drain with `GPIO_NOPULL`, so **external pull-up resistors are required** (typically 4.7 kΩ to the sensor supply).
+- Original timing word `0x00909BEB`; Nucleo profiles override it with `0x3090F9F9` (about 20 kHz). Addressing is 7-bit, analog filter enabled, digital filter 0, clock stretching enabled.
+- Original pins use `GPIO_NOPULL`; Nucleo profiles enable weak internal pull-ups. Fit external pull-ups to **3V3** for reliable edges, even when SCD30 supply is 5V.
 - Three devices share the bus:
 
 | Device | 7-bit address | Driver | Notes |
 | --- | --- | --- | --- |
-| SCD30 (CO2 / temperature / humidity) | `0x61` | `Core/Src/scd_sensor.c` + `libs/scd30` | 2 s measurement interval, polled non-blocking via `scd30_get_data_ready()` |
-| VEML6070 (UV) | `0x38` low byte, `0x39` high byte, `0x0C` ARA | `Core/Src/uv_sensor.c` | Integration time 4T; ARA read on init clears a pending alert |
-| TCS34725 (RGB / lux / colour temperature) | `0x29` | `Core/Src/light_sensor.c` | 50 ms integration, 4× gain, ID register accepts `0x4D`, `0x44`, `0x10` |
+| SCD30 (CO2 / temperature / humidity) | `0x61` | `Core/Src/scd_sensor.c` + `libs/scd30` | Default 2 s measurement interval; readiness polled via `scd30_get_data_ready()`; configurable on USB profile |
+| VEML6070 (UV) | `0x38` low byte, `0x39` high byte, `0x0C` ARA | `Core/Src/uv_sensor.c` | Default 4T integration, configurable on USB profile; ARA read clears a pending alert |
+| TCS34725 (RGB / lux / colour temperature) | `0x29` | `Core/Src/light_sensor.c` | Default about 50 ms integration and 4× gain, configurable on USB profile; ID accepts `0x4D`, `0x44`, `0x10` |
 
 Because the SCD30 and VEML6070 are serviced by `SensorsTask` while the TCS34725 is serviced by the lower-priority `SensorsBme680Task`, all bus access goes through the mutex in [`Core/Src/i2c_bus.c`](Core/Src/i2c_bus.c) (`I2cBus_Lock()` / `I2cBus_Unlock()`, 1000 ms timeout). The lock is taken around a whole sensor operation, never around individual HAL calls, and it is not recursive.
 
 ### I2C3 — spare bus (PC0 SCL, PG8 SDA)
 
-Configured identically to I2C1 and initialised from `main()` (`MX_I2C3_Init()`), but no driver in the tree uses `hi2c3`. Treat it as a free expansion bus; it also needs external pull-ups.
+The original configuration initializes `MX_I2C3_Init()` through
+`App_HardwareInit()` when `APP_I2C3_ENABLED` is set. No driver uses `hi2c3`, and
+minimal Nucleo profiles leave it disabled. It needs external pull-ups when used.
 
 ### SPI1 — ST7565 LCD (PE13 SCK, PA7 MOSI)
 
@@ -440,7 +715,8 @@ Configured identically to I2C1 and initialised from `main()` (`MX_I2C3_Init()`),
 
 - Master, full-duplex, CPOL low / CPHA 1-edge (SPI mode 0), MSB first, 8-bit, baud prescaler 8, software NSS with `NSSPMode = SPI_NSS_PULSE_ENABLE`.
 - **CS is a plain GPIO**: `SensorsBme680Task()` drives `SPI2_CS_Pin` (PF12) high at task start, then low around each register read/write in `sensor_spi_read()` / `sensor_spi_write()`, with 350 ms HAL timeouts.
-- Sensor settings: humidity ×2, pressure ×4, temperature ×8 oversampling, IIR filter size 3, gas heater 320 °C for 150 ms, forced mode. The loop period follows `bme680_get_profile_dur()`, clamped to a 50 ms floor and falling back to 1000 ms while the sensor has not initialised.
+- Raw-mode settings: humidity ×2, pressure ×4, temperature ×8 oversampling, IIR filter size 3, gas heater 320 °C for 150 ms, forced mode. The loop period follows `bme680_get_profile_dur()`, clamped to a 50 ms floor and falling back to 1000 ms while the sensor has not initialised.
+- On `nucleo-bsec`/`nucleo-usb`, BSEC selects oversampling/heater settings and schedules a measurement about every 3 s. Its service runs every 50 ms; the color sensor is polled independently at its configured interval.
 
 ### UART4 — Honeywell HPMA115S0 (PA0 TX, PA1 RX)
 
@@ -466,6 +742,14 @@ Configured identically to I2C1 and initialised from `main()` (`MX_I2C3_Init()`),
 
 - PA11/PA12 on AF10, `OTG_FS_IRQn` at preemption priority 5, HID host class.
 - `MX_DriverVbusFS()` in [`USB_HOST/Target/usbh_platform.c`](USB_HOST/Target/usbh_platform.c) switches VBUS through PG6: state `1` sets the pin, state `0` clears it. Match this against the polarity of your charge pump before powering a device.
+
+### USB OTG FS device — RNDIS dashboard (CN13)
+
+The `nucleo-usb` profile uses the same PA11/PA12 data pins in device mode, PA9
+as VBUS sense, and keeps PG6 low. TinyUSB owns the OTG interrupt and endpoints;
+the generated host handler is bypassed. USB uses **HSI48 with CRS synchronized
+to USB frames**, while the system runs at 40 MHz. One FreeRTOS network task
+owns TinyUSB and lwIP, including DHCP, mDNS, HTTP, and the PC measurement stream.
 
 ### ADC1 (PB1)
 
@@ -493,7 +777,9 @@ IWDG with prescaler 32 and reload/window 3999 — roughly a **4 s** timeout on t
 
 ### LEDs and indicators
 
-All are push-pull outputs with no pull, low speed, and are driven low in `MX_GPIO_Init()`.
+The original GPIO configuration uses push-pull outputs, no pull, and low speed.
+`App_HardwareInit()` initializes only the selected peripherals/indicators;
+minimal Nucleo profiles retain PB7/PB14, while the other optional LEDs stay off.
 
 | Pin | Label | Behaviour in the current firmware |
 | --- | --- | --- |
@@ -514,9 +800,9 @@ Every application interrupt — `DMA1_Channel1/2/3`, `TIM1_UP_TIM16`, `TIM1_TRG_
 
 ### Wiring notes
 
-- I2C1 and I2C3 have no internal pull-ups configured; add external ones.
+- Fit I2C pull-ups to 3V3. Nucleo profiles enable weak internal pull-ups on I2C1 as a bring-up fallback; the original configuration and spare I2C3 do not.
 - PG6 (`USB_EN`) and PG8 (`I2C3_SDA`) require VDDIO2 to be supplied and enabled.
 - SPI1 runs half-duplex — do not expect to read back from the ST7565.
 - Both chip selects (PB15 for the LCD, PF12 for the BME680) are software-controlled GPIOs, not hardware NSS.
-- The board is clocked from MSI range 6 through the PLL (PLLM 1, PLLN 20, PLLR /2), with PLLSAI1 feeding the ADC and USB; there is no external crystal in the configuration.
-- Changing any assignment here means changing the `.ioc` **and** the generated init code together, or the next CubeMX regeneration will silently revert it.
+- The system runs from MSI range 6 through the PLL (PLLM 1, PLLN 20, PLLR /2), giving 40 MHz. The original ADC/USB configuration uses PLLSAI1; USB RNDIS selects HSI48/CRS instead.
+- Keep pin changes synchronized with the `.ioc`, generated code, and protected application overrides. Preserve the selectable `App_HardwareInit()` path after CubeMX regeneration.
