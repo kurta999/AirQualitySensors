@@ -1,0 +1,40 @@
+#ifndef AQS_LWIPOPTS_H
+#define AQS_LWIPOPTS_H
+
+#define NO_SYS 1
+#define SYS_LIGHTWEIGHT_PROT 0
+#define MEM_ALIGNMENT 4
+#define MEM_SIZE (24 * 1024)
+#define LWIP_RAW 0
+#define LWIP_NETCONN 0
+#define LWIP_SOCKET 0
+#define LWIP_DHCP 0
+#define LWIP_DNS 0
+#define LWIP_ICMP 1
+#define LWIP_UDP 1
+#define LWIP_TCP 1
+#define LWIP_IPV4 1
+#define LWIP_IPV6 0
+#define LWIP_ARP 1
+#define LWIP_ETHERNET 1
+#define LWIP_SINGLE_NETIF 1
+#define LWIP_NETIF_LINK_CALLBACK 0
+#define LWIP_IP_ACCEPT_UDP_PORT(p) ((p) == PP_NTOHS(67))
+#define LWIP_NETIF_HOSTNAME 1
+#define IP_FORWARD 0
+#define IP_REASSEMBLY 0
+#define IP_FRAG 0
+#define TCP_MSS 1460
+#define TCP_WND (4 * TCP_MSS)
+#define TCP_SND_BUF (4 * TCP_MSS)
+#define MEMP_NUM_TCP_PCB 8
+#define MEMP_NUM_TCP_PCB_LISTEN 2
+#define MEMP_NUM_TCP_SEG 24
+#define TCP_SYNMAXRTX 3
+#define PBUF_POOL_SIZE 12
+#define PBUF_POOL_BUFSIZE 1536
+#define LWIP_STATS 0
+#define LWIP_CHECKSUM_ON_COPY 1
+#define LWIP_SO_RCVTIMEO 0
+
+#endif

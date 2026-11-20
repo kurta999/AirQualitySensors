@@ -19,6 +19,7 @@
 #include "usart.h"
 #include "usart_driver.h"
 #include "usb_host.h"
+#include "usb_net.h"
 #include "usbh_hid_keybd.h"
 #include "user_interface.h"
 #include "wifi.h"
@@ -32,6 +33,7 @@ osThreadId UsartDriverTHandle;
 osThreadId WifiHandle;
 osThreadId SensorsHandle;
 osThreadId SensorsBme680Handle;
+osThreadId UsbNetHandle;
 osMutexId lcd_mutexHandle;
 
 #if APP_HOST_UART_ENABLED
@@ -196,9 +198,18 @@ void MX_FREERTOS_Init(void)
 #if APP_WIFI_ENABLED
     TaskHealth_Register(TASK_HEALTH_WIFI, TASK_DEADLINE_WIFI_MS, now);
 #endif
+#if APP_USB_RNDIS_ENABLED
+    TaskHealth_Register(TASK_HEALTH_USB_NET, 5000U, now);
+#endif
 
     osThreadDef(defaultTask, StartDefaultTask, osPriorityHigh, 0U, 384U);
     defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+
+#if APP_USB_RNDIS_ENABLED
+    osThreadDef(UsbNet, UsbNet_Task, osPriorityAboveNormal, 0U, 2048U);
+    UsbNetHandle = osThreadCreate(osThread(UsbNet), NULL);
+    if(UsbNetHandle == NULL) { Error_Handler(); }
+#endif
 
 #if APP_LCD_ENABLED
     osThreadDef(UserInterface, UserInterfaceTask, osPriorityNormal, 0U, 384U);

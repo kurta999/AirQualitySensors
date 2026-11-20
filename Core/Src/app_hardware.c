@@ -51,7 +51,7 @@ void App_HardwareInit(void)
     output_pins(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_SET);
     MX_SPI2_Init();
 #endif
-#if APP_USB_HOST_ENABLED
+#if APP_USB_HOST_ENABLED || APP_USB_RNDIS_ENABLED
     __HAL_RCC_GPIOG_CLK_ENABLE();
     HAL_PWREx_EnableVddIO2();
     output_pins(USB_EN_GPIO_Port, USB_EN_Pin, GPIO_PIN_RESET);

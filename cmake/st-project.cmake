@@ -22,6 +22,9 @@ function(add_st_target_properties target_name)
         Core/Src/user_interface.c
         Core/Src/usart_driver.c
         Core/Src/uv_sensor.c
+        Core/Src/usb_dhcp.c
+        Core/Src/usb_net.c
+        Core/Src/usb_net_descriptors.c
         Core/Src/wifi.c
         libs/ESP32/esp32.c
         libs/circbuff/circbuff.c
@@ -142,6 +145,14 @@ function(add_st_target_properties target_name)
         target_compile_definitions(${target_name} PRIVATE APP_BSEC_ENABLED=1)
         target_include_directories(${target_name} PRIVATE "${BSEC_ROOT}/src/inc"
             "${BSEC_ROOT}/src/config/bme680/bme680_iaq_33v_3s_4d")
+    endif()
+
+    if(AQS_USB_RNDIS_ENABLED)
+        if(NOT AQS_I2C_ONLY OR AQS_WIFI_ENABLED OR NOT AQS_MCU STREQUAL "STM32L496")
+            message(FATAL_ERROR "USB RNDIS requires the minimal L496 profile with Wi-Fi off")
+        endif()
+        target_compile_definitions(${target_name} PRIVATE APP_USB_RNDIS_ENABLED=1)
+        add_usb_network_sources(${target_name})
     endif()
 
     # Compile-only Wi-Fi configuration. The default build leaves APP_WIFI_ENABLED

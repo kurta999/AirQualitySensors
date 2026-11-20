@@ -1,0 +1,6 @@
+TinyUSB 0.21.0
+Upstream: https://github.com/hathach/tinyusb
+Revision: dae3f9a366bfcddbf9dcf1b48d7500286a849539
+Subset: common/device/OS abstraction, network class, STM32 DWC2 controller, RNDIS reports; CDC type header.
+License: MIT (see LICENSE and file notices).
+DHCP server is application-owned and is tested independently.

@@ -51,6 +51,9 @@
 #ifndef APP_USB_HOST_ENABLED
 #define APP_USB_HOST_ENABLED APP_HARDWARE_ENABLED
 #endif
+#ifndef APP_USB_RNDIS_ENABLED
+#define APP_USB_RNDIS_ENABLED 0
+#endif
 #ifndef APP_HOST_UART_ENABLED
 #define APP_HOST_UART_ENABLED APP_HARDWARE_ENABLED
 #endif
@@ -76,6 +79,9 @@
 
 #ifndef APP_WIFI_ENABLED
 #define APP_WIFI_ENABLED 0
+#endif
+#if APP_USB_RNDIS_ENABLED && (APP_USB_HOST_ENABLED || APP_WIFI_ENABLED)
+#error "USB RNDIS replaces USB host and Wi-Fi in this configuration"
 #endif
 #ifndef APP_WIFI_SSID
 #define APP_WIFI_SSID ""

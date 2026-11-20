@@ -1,6 +1,6 @@
 # Serial and TCP protocol
 
-The firmware emits two independent kinds of data on USART2 and optionally sends measurement text through the ESP32 TCP connection.
+The firmware emits two independent kinds of data on USART2 and optionally sends measurement text through either ESP32 TCP or USB RNDIS TCP.
 
 ## Measurement record
 
@@ -10,9 +10,24 @@ Measurements are UTF-8/ASCII text terminated by `\n`:
 MEAS_DATA SCD30: <temperature>,<humidity>,<co2> BME680: <temperature>,<humidity>,<pressure>,<gas_resistance>,<timestamp_ms> HONEYWELL: <pm25>,<pm10> VEML6070: <uv_raw> TCS: <red>,<green>,<blue>,<color_temperature>,<lux>\n
 ```
 
-Floating-point values use four decimal places. Integers are unsigned decimal values. The same record format is used for USART2 and ESP32 TCP output. Measurement records do not carry a CRC or length prefix; receivers should read through the newline and reject incomplete or oversized lines.
+Floating-point values use four decimal places. Integers are unsigned decimal values. The same record format is used for USART2, ESP32 TCP, and USB RNDIS TCP output. Measurement records do not carry a CRC or length prefix; receivers should read through the newline and reject incomplete or oversized lines.
 
 This record is a contract with the backend, [WindowsAddon](https://github.com/kurta999/WindowsAddon), which reads the values positionally. The field order and count must not change without updating the receiver in the same breath; adding, removing or reordering a field breaks it even though the firmware still compiles. The host test suite pins the exact record so an accidental change fails there first. Per-sensor validity and last-update timestamps are tracked inside the firmware and shown on the LCD, but are deliberately kept off the wire for this reason.
+
+## USB RNDIS transport
+
+The board is `192.168.7.1/30`; its DHCP server assigns the USB host
+`192.168.7.2/30`, without a default gateway or DNS. It pushes the same
+measurement record to the host's `APP_SERVER_PORT` (default 2005) every
+`APP_MEASUREMENT_SEND_INTERVAL_MS`. A receiver can keep the TCP connection
+open or close it after each record.
+
+Port 80 serves read-only HTTP GETs: `/` is the live page, `/measurements`
+returns the positional record, and `/api/measurements` returns JSON with
+validity, timestamps, sensor readings, IAQ accuracy/run-in status, and USB
+transport counters. The exact `SEND_SENSOR_DATA` command, optionally ending
+in CR/LF, requests an immediate TCP push on the same port. Other remote
+commands, including MCU reset, are not implemented on this USB endpoint.
 
 ## Keyboard gateway messages
 

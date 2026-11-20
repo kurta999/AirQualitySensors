@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('nucleo-i2c', 'nucleo-sensors', 'nucleo-bsec')]
+    [ValidateSet('nucleo-i2c', 'nucleo-sensors', 'nucleo-bsec', 'nucleo-usb')]
     [string]$Preset = 'nucleo-i2c',
     [switch]$AttachOnly,
     [switch]$NoBuild,
@@ -69,7 +69,8 @@ try {
         'print/x *(unsigned int*)0x48000410'
     )
     if ($Preset -ne 'nucleo-i2c') { $aqsStartup += 'print bme680_diagnostics' }
-    if ($Preset -eq 'nucleo-bsec') { $aqsStartup += 'print bsec_diagnostics' }
+    if ($Preset -in @('nucleo-bsec', 'nucleo-usb')) { $aqsStartup += 'print bsec_diagnostics' }
+    if ($Preset -eq 'nucleo-usb') { $aqsStartup += 'print usb_net_diagnostics' }
     $aqsStartup += 'end'
     if (-not $AttachOnly) { $aqsStartup += @('tbreak main', 'continue') }
     $aqsStartup | Set-Content "$aqsBuildDir/debug.gdb" -Encoding ascii

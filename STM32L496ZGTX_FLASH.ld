@@ -51,6 +51,7 @@ PHDRS
 {
   flash PT_LOAD FLAGS(5); /* read + execute */
   ram   PT_LOAD FLAGS(6); /* read + write */
+  ram_zero PT_LOAD FLAGS(6); /* zero-initialized RAM, no flash image */
 }
 
 /* Sections */
@@ -153,7 +154,7 @@ SECTIONS
 
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);
-  .bss (NOLOAD) :
+  .bss (NOLOAD) : AT(ADDR(.bss))
   {
     /* This is used by the startup in order to initialize the .bss section */
     _sbss = .;         /* define a global symbol at bss start */
@@ -165,7 +166,7 @@ SECTIONS
     . = ALIGN(4);
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
-  } >RAM :ram
+  } >RAM :ram_zero
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack (NOLOAD) :

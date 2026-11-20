@@ -76,9 +76,20 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": true,
         "AQS_WIFI_ENABLED": "ON"
       }
+    },
+    {
+      "name": "nucleo-usb",
+      "inherits": "nucleo-bsec",
+      "cacheVariables": {
+        "AQS_USB_RNDIS_ENABLED": "ON"
+      }
     }
   ],
   "buildPresets": [
+    {
+      "name": "nucleo-usb",
+      "configurePreset": "nucleo-usb"
+    },
     {
       "name": "nucleo-bsec",
       "configurePreset": "nucleo-bsec"

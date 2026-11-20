@@ -13,6 +13,7 @@ option(AQS_I2C_ONLY "Enable only TCS34725, VEML6070 and SCD30 on the Nucleo I2C1
 option(AQS_HARDWARE_ENABLED "Default enable state for application hardware" ON)
 option(AQS_BME680_ENABLED "Enable the BME680 alongside the minimal Nucleo profile" OFF)
 option(AQS_BSEC_ENABLED "Calculate Bosch IAQ using the locally installed BSEC library" OFF)
+option(AQS_USB_RNDIS_ENABLED "Use USB RNDIS Ethernet and DHCP instead of Wi-Fi" OFF)
 set(BSEC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/libs/bsec" CACHE PATH "Bosch BSEC package directory")
 set(AQS_MCU "STM32L476" CACHE STRING "Target MCU: STM32L476 or STM32L496")
 set_property(CACHE AQS_MCU PROPERTY STRINGS STM32L476 STM32L496)
@@ -28,6 +29,7 @@ if(AQS_BSEC_ENABLED AND (NOT AQS_BME680_ENABLED OR NOT AQS_MCU STREQUAL "STM32L4
 endif()
 
 include(cmake/st-project.cmake)
+include(cmake/usb-network.cmake)
 
 add_executable(${PROJECT_NAME})
 add_st_target_properties(${PROJECT_NAME})

@@ -4,6 +4,7 @@
 
 #include "circbuff/circbuff.h"
 #include "bsec_state_record.h"
+#include "usb_dhcp.h"
 #include "hpma/hpma_parser.h"
 #include "measurement_format.h"
 #include "measurement_store.h"
@@ -350,6 +351,45 @@ static void test_bsec_state_records(void)
     CHECK(BsecStateRecord_Create(&second, 17U, 2U, payload, BSEC_STATE_PAYLOAD_CAPACITY + 1U) != 0);
 }
 
+static void test_usb_dhcp(void)
+{
+    uint8_t request[300] = {0};
+    uint8_t reply[300];
+    static const uint8_t server[] = {192,168,7,1};
+    static const uint8_t client[] = {192,168,7,2};
+    static const uint8_t mask[] = {255,255,255,252};
+    request[0] = 1; request[1] = 1; request[2] = 6; request[4] = 73;
+    request[28] = 2; request[29] = 17;
+    request[236] = 99; request[237] = 130; request[238] = 83; request[239] = 99;
+    request[240] = 0; /* PAD must not be interpreted as a length/value pair. */
+    request[241] = 53; request[242] = 1; request[243] = 1; request[244] = 255;
+    for(size_t length = 0; length < 240; ++length)
+    {
+        CHECK(UsbDhcp_Reply(request, length, reply, sizeof(reply), server, client, mask) == 0);
+    }
+    CHECK(UsbDhcp_Reply(request, sizeof(request), reply, 299, server, client, mask) == 0);
+    CHECK(UsbDhcp_Reply(request, sizeof(request), reply, sizeof(reply), server, client, mask) == 300);
+    CHECK(reply[0] == 2 && reply[4] == 73 && reply[242] == 2);
+    CHECK(memcmp(reply + 16, client, 4) == 0 && memcmp(reply + 28, request + 28, 16) == 0);
+    for(size_t pos = 240; pos < 300 && reply[pos] != 255; pos += 2U + reply[pos + 1U])
+    {
+        CHECK(reply[pos] != 3 && reply[pos] != 6); /* Do not alter PC gateway/DNS. */
+    }
+    request[243] = 3; /* Selecting the offered lease. */
+    request[244] = 50; request[245] = 4; memcpy(request + 246, client, 4); request[250] = 255;
+    CHECK(UsbDhcp_Reply(request, sizeof(request), reply, sizeof(reply), server, client, mask) == 300);
+    CHECK(reply[242] == 5);
+    request[249] = 3;
+    CHECK(UsbDhcp_Reply(request, sizeof(request), reply, sizeof(reply), server, client, mask) == 300);
+    CHECK(reply[242] == 6 && reply[16] == 0);
+    request[249] = 2; request[250] = 54; request[251] = 4;
+    memcpy(request + 252, server, 4); request[255] = 99; request[256] = 255;
+    CHECK(UsbDhcp_Reply(request, sizeof(request), reply, sizeof(reply), server, client, mask) == 0);
+    request[255] = 1;
+    CHECK(UsbDhcp_Reply(request, 254, reply, sizeof(reply), server, client, mask) == 0);
+    CHECK(UsbDhcp_Reply(request, sizeof(request), reply, sizeof(reply), server, client, mask) == 300);
+}
+
 int main(void)
 {
     test_crc16();
@@ -362,6 +402,7 @@ int main(void)
     test_sensor_retry();
     test_task_health();
     test_bsec_state_records();
+    test_usb_dhcp();
 
     if(failures != 0U)
     {

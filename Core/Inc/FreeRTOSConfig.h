@@ -150,7 +150,7 @@ standard names. */
 
 /* USER CODE BEGIN Defines */
 #include "app_config.h"
-#if APP_BSEC_ENABLED
+#if APP_BSEC_ENABLED || APP_USB_RNDIS_ENABLED
 #undef configTOTAL_HEAP_SIZE
 #define configTOTAL_HEAP_SIZE ((size_t)32768)
 #endif

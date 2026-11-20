@@ -1,0 +1,5 @@
+lwIP
+Upstream: https://github.com/lwip-tcpip/lwip
+Revision: 159e31b689577dbf69cf0683bbaffbd71fa5ee10
+Subset: core, public headers, Ethernet interface.
+License: BSD-3-Clause (see COPYING and file notices).

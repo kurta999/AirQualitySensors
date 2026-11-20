@@ -23,6 +23,8 @@
 #include "stm32l4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "app_config.h"
+#include "usb_net.h"
 #include "usart_driver.h"
 /* USER CODE END Includes */
 
@@ -298,7 +300,10 @@ void UART4_IRQHandler(void)
 void OTG_FS_IRQHandler(void)
 {
   /* USER CODE BEGIN OTG_FS_IRQn 0 */
-
+#if APP_USB_RNDIS_ENABLED
+  UsbNet_IrqHandler();
+  return;
+#endif
   /* USER CODE END OTG_FS_IRQn 0 */
   HAL_HCD_IRQHandler(&hhcd_USB_OTG_FS);
   /* USER CODE BEGIN OTG_FS_IRQn 1 */

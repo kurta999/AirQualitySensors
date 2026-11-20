@@ -169,6 +169,65 @@ debugger can set `bsec_diagnostics.save_requested=1` to request a one-off save
 through the running task; normal operation requires no debugger interaction.
 Restore/save status and counters are exposed in `bsec_diagnostics`.
 
+## USB RNDIS network instead of Wi-Fi
+
+The `nucleo-usb` preset keeps all four sensors and BSEC enabled and replaces
+Wi-Fi and USB host mode with a USB **device** network interface. Connect a
+data cable from native USB **CN13** to the PC; keep the ST-LINK cable connected
+for programming/debugging. PG6 keeps the board's USB host VBUS power switch
+off in this mode. TinyUSB owns the USB interrupt and device endpoints; the
+original CubeMX `.ioc` host configuration remains available to the older
+profiles and is bypassed by the protected application initialization path.
+
+```powershell
+./scripts/Install-Bsec.ps1
+cmake --preset nucleo-usb
+cmake --build --preset nucleo-usb --parallel
+./scripts/Debug-Nucleo.ps1 -Preset nucleo-usb
+```
+
+Windows automatically binds its built-in Remote NDIS Compatible Device
+driver using the firmware's Microsoft OS descriptors. This development
+firmware uses TinyUSB's example VID with a dedicated product ID; assign
+proper product identifiers before distributing hardware. The device serial
+and locally administered MAC address derive from the MCU unique ID.
+
+| Endpoint | Value |
+| --- | --- |
+| Board address | `192.168.7.1/30` |
+| PC address, assigned by the board's DHCP server | `192.168.7.2/30` |
+| DHCP lease | 24 h, one USB host |
+| Default gateway / DNS supplied to PC | None |
+| Live sensor page | `http://192.168.7.1/` |
+| JSON snapshot, validity, timestamps and IAQ status | `http://192.168.7.1/api/measurements` |
+| Existing positional record | `http://192.168.7.1/measurements` |
+| Measurement push destination | PC `192.168.7.2`, `APP_SERVER_PORT` (default `2005`) |
+
+The board sends the existing `MEAS_DATA` record every
+`APP_MEASUREMENT_SEND_INTERVAL_MS` (default 1500 ms). It supports both a
+persistent TCP receiver and the current PC receiver that closes after one
+record. Port 80 also accepts the existing exact `SEND_SENSOR_DATA` command
+to request an immediate push. Other USB requests are read-only HTTP GETs.
+IP forwarding is disabled and the board does not advertise a default route
+or DNS server, so the PC's existing network connections continue providing
+Internet access. The `192.168.7.0/30` subnet must be free on the PC.
+
+To repeat the Windows acceptance test while the companion TCP receiver is
+listening on port 2005:
+
+```powershell
+./scripts/Test-UsbNetwork.ps1 -RequireReceiver
+```
+
+This PowerShell 7 script verifies a DHCP lease, no USB default gateway/DNS,
+ping, repeated HTTP requests, advancing sensor timestamps, and acknowledged
+TCP measurement bytes. It writes `build/nucleo-usb/pc-test.json`.
+Without `-RequireReceiver`, HTTP/network checks still run when no companion
+receiver is installed. In GDB, `sensors` includes `usb_net_diagnostics`;
+packet, DHCP, HTTP, record-send and TCP acknowledgment counters are available.
+The USB stack is confined to one FreeRTOS task and uses bounded packet and
+HTTP buffers. The original raw/BSEC presets remain available.
+
 ## Backend
 
 Measurements are received by [WindowsAddon](https://github.com/kurta999/WindowsAddon), a Windows tray toolbox that also serves as the sensor backend for this firmware. It runs the TCP server the device reports to, stores the average of the measurements in a configured integration period in an SQLite database, and generates graphs from recent measurements plus daily and weekly averages. The graphs are served at `your_local_ip:2005/graphs` and can be viewed from any device on the network, including a phone.
