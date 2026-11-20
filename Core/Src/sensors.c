@@ -1,5 +1,6 @@
 #include "sensors.h"
 
+#include "app_config.h"
 #include "cmsis_os.h"
 #include "honeywell_sensor.h"
 #include "measurement_store.h"
@@ -17,6 +18,7 @@
  * the whole task down.
  */
 
+#if APP_VEML6070_ENABLED
 static void service_uv(SensorRetryState* state)
 {
     if(SensorRetry_IsInitialized(state) == 0U)
@@ -39,7 +41,9 @@ static void service_uv(SensorRetryState* state)
         Measurements_Invalidate(MEASUREMENT_SOURCE_UV);
     }
 }
+#endif
 
+#if APP_SCD30_ENABLED
 static void service_scd30(SensorRetryState* state)
 {
     if(SensorRetry_IsInitialized(state) == 0U)
@@ -60,25 +64,36 @@ static void service_scd30(SensorRetryState* state)
         Measurements_Invalidate(MEASUREMENT_SOURCE_SCD30);
     }
 }
+#endif
 
 void SensorsTask(void const* argument)
 {
     (void)argument;
 
+#if APP_VEML6070_ENABLED
     SensorRetryState uv_state;
-    SensorRetryState scd30_state;
     SensorRetry_Reset(&uv_state);
+#endif
+#if APP_SCD30_ENABLED
+    SensorRetryState scd30_state;
     SensorRetry_Reset(&scd30_state);
+#endif
 
     for(;;)
     {
         TaskHealth_ReportAlive(TASK_HEALTH_SENSORS, osKernelSysTick());
 
+#if APP_VEML6070_ENABLED
         service_uv(&uv_state);
+#endif
+#if APP_SCD30_ENABLED
         service_scd30(&scd30_state);
+#endif
         /* The HPMA runs on UART4, not I2C1, but this is the loop that gives
          * it a periodic chance to recover from a stalled reception. */
+#if APP_HPMA_ENABLED
         Honeywell_Poll(osKernelSysTick());
+#endif
 
         osDelay(SENSORS_LOOP_PERIOD_MS);
     }

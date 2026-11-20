@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "app_config.h"
 #include "bme680/bme680.h"
 #include "cmsis_os.h"
 #include "light_sensor.h"
@@ -17,6 +18,7 @@
 
 extern SPI_HandleTypeDef hspi2;
 
+#if APP_BME680_ENABLED
 static struct bme680_dev gas_sensor;
 
 static void sensor_delay_ms(uint32_t period)
@@ -145,6 +147,9 @@ static void service_bme680(SensorRetryState* state, uint16_t* measurement_period
     }
 }
 
+#endif
+
+#if APP_TCS34725_ENABLED
 static void service_tcs34725(SensorRetryState* state)
 {
     if(SensorRetry_IsInitialized(state) == 0U)
@@ -165,32 +170,40 @@ static void service_tcs34725(SensorRetryState* state)
         Measurements_Invalidate(MEASUREMENT_SOURCE_LIGHT);
     }
 }
+#endif
 
 void SensorsBme680Task(void const* argument)
 {
     (void)argument;
+#if APP_BME680_ENABLED
     HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_SET);
-
     SensorRetryState bme680_state;
-    SensorRetryState tcs34725_state;
     SensorRetry_Reset(&bme680_state);
-    SensorRetry_Reset(&tcs34725_state);
     uint16_t measurement_period_ms = 0U;
+#endif
+#if APP_TCS34725_ENABLED
+    SensorRetryState tcs34725_state;
+    SensorRetry_Reset(&tcs34725_state);
+#endif
 
     for(;;)
     {
         TaskHealth_ReportAlive(TASK_HEALTH_BME680, osKernelSysTick());
 
+        uint16_t period_ms = BME680_RETRY_PERIOD_MS;
+#if APP_BME680_ENABLED
         service_bme680(&bme680_state, &measurement_period_ms);
-        service_tcs34725(&tcs34725_state);
-
-        uint16_t period_ms = SensorRetry_IsInitialized(&bme680_state) != 0U
+        period_ms = SensorRetry_IsInitialized(&bme680_state) != 0U
             ? measurement_period_ms
             : BME680_RETRY_PERIOD_MS;
         if(period_ms < BME680_MIN_PERIOD_MS)
         {
             period_ms = BME680_MIN_PERIOD_MS;
         }
+#endif
+#if APP_TCS34725_ENABLED
+        service_tcs34725(&tcs34725_state);
+#endif
         osDelay(period_ms);
     }
 }

@@ -6,6 +6,7 @@ This repository includes third-party and vendor code. Those components retain th
 | --- | --- | --- |
 | STM32L4 HAL/LL drivers | `Drivers/STM32L4xx_HAL_Driver/` | BSD 3-Clause; see `LICENSE.txt` and `License.md` |
 | CMSIS and STM32 device support | `Drivers/CMSIS/` | Apache-2.0/BSD-style component terms; see the included `LICENSE.txt` files and source headers |
+| STM32L496 device header and GCC startup | `Drivers/CMSIS/Device/ST/STM32L4xx/Include/stm32l496xx.h`, `Core/Startup/startup_stm32l496zgtx.s` | ST [cmsis-device-l4 v1.7.2](https://github.com/STMicroelectronics/cmsis-device-l4/tree/v1.7.2); BSD-3-Clause, see `Drivers/CMSIS/Device/ST/STM32L4xx/License-L496.md`; matches the existing CMSIS device version |
 | STM32 USB Host Library and generated integration | `Middlewares/ST/STM32_USB_Host_Library/`, `USB_HOST/` | ST SLA0044/Ultimate Liberty notices embedded in the source files |
 | FreeRTOS kernel and CMSIS-RTOS wrapper | `Middlewares/Third_Party/FreeRTOS/` | MIT for the kernel; see `Source/LICENSE`; the CMSIS wrapper also carries ARM/ST notices in its source headers |
 | Bosch Sensortec BME680 driver | `libs/bme680/` | BSD 3-Clause text embedded in each driver source/header |

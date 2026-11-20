@@ -34,7 +34,9 @@ osThreadId SensorsHandle;
 osThreadId SensorsBme680Handle;
 osMutexId lcd_mutexHandle;
 
+#if APP_HOST_UART_ENABLED
 static uint32_t last_measurement_sent;
+#endif
 
 /*
  * Watchdog deadlines. Each is generous relative to its task's loop period so
@@ -47,6 +49,7 @@ static uint32_t last_measurement_sent;
 #define TASK_DEADLINE_BME680_MS         10000U  /* loop period <= 1000 ms */
 #define TASK_DEADLINE_WIFI_MS           30000U  /* setup retries take 5 s each */
 
+#if APP_HOST_UART_ENABLED && APP_USB_HOST_ENABLED
 static void SendMessage(const uint8_t* message, size_t length)
 {
     uint8_t output[257];
@@ -91,6 +94,9 @@ static void SendPressedKeys(void)
     }
 }
 
+#endif
+
+#if APP_HOST_UART_ENABLED
 static void SendMeasurements(void)
 {
     const uint32_t now = osKernelSysTick();
@@ -110,26 +116,37 @@ static void SendMeasurements(void)
     }
     last_measurement_sent = now;
 }
+#endif
 
 static void StartDefaultTask(void const* argument)
 {
     (void)argument;
+#if APP_USB_HOST_ENABLED
     MX_USB_HOST_Init();
+#endif
+#if APP_HOST_UART_ENABLED && APP_USB_HOST_ENABLED
     static const uint8_t reset_message[] = "reset";
     SendMessage(reset_message, sizeof(reset_message) - 1U);
+#endif
 
     for(;;)
     {
+#if APP_HOST_UART_ENABLED && APP_USB_HOST_ENABLED
         SendPressedKeys();
+#endif
+#if APP_HOST_UART_ENABLED
         SendMeasurements();
+#endif
 
         /* Refresh the watchdog only while every essential task is still
          * making progress. Refreshing unconditionally from here meant the
          * device stayed alive with all of its real work wedged. */
+#if APP_WATCHDOG_ENABLED
         if(hiwdg.Instance != NULL && TaskHealth_AllAlive(osKernelSysTick()) != 0U)
         {
             (void)HAL_IWDG_Refresh(&hiwdg);
         }
+#endif
         osDelay(10U);
     }
 }
@@ -148,23 +165,34 @@ void vApplicationMallocFailedHook(void)
 
 void MX_FREERTOS_Init(void)
 {
+#if APP_LCD_ENABLED
     osMutexDef(lcd_mutex);
     lcd_mutexHandle = osMutexCreate(osMutex(lcd_mutex));
     if(lcd_mutexHandle == NULL)
     {
         Error_Handler();
     }
+#endif
 
+#if APP_I2C1_ENABLED
     I2cBus_Init();
+#endif
 
     /* Registering before the scheduler starts means a task that never reaches
      * its first loop iteration is caught by the watchdog as well. */
     const uint32_t now = osKernelSysTick();
+    (void)now;
     TaskHealth_Reset();
+#if APP_LCD_ENABLED
     TaskHealth_Register(
         TASK_HEALTH_USER_INTERFACE, TASK_DEADLINE_USER_INTERFACE_MS, now);
+#endif
+#if APP_SENSORS_TASK_ENABLED
     TaskHealth_Register(TASK_HEALTH_SENSORS, TASK_DEADLINE_SENSORS_MS, now);
+#endif
+#if APP_BME_LIGHT_TASK_ENABLED
     TaskHealth_Register(TASK_HEALTH_BME680, TASK_DEADLINE_BME680_MS, now);
+#endif
 #if APP_WIFI_ENABLED
     TaskHealth_Register(TASK_HEALTH_WIFI, TASK_DEADLINE_WIFI_MS, now);
 #endif
@@ -172,8 +200,10 @@ void MX_FREERTOS_Init(void)
     osThreadDef(defaultTask, StartDefaultTask, osPriorityHigh, 0U, 384U);
     defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
+#if APP_LCD_ENABLED
     osThreadDef(UserInterface, UserInterfaceTask, osPriorityNormal, 0U, 384U);
     UserInterfaceHandle = osThreadCreate(osThread(UserInterface), NULL);
+#endif
 
 #if APP_WIFI_ENABLED
     osThreadDef(UsartDriverT, UsartDriver_Task, osPriorityHigh, 0U, 256U);
@@ -183,14 +213,27 @@ void MX_FREERTOS_Init(void)
     WifiHandle = osThreadCreate(osThread(Wifi), NULL);
 #endif
 
+#if APP_SENSORS_TASK_ENABLED
     osThreadDef(Sensors, SensorsTask, osPriorityNormal, 0U, 512U);
     SensorsHandle = osThreadCreate(osThread(Sensors), NULL);
+#endif
 
+#if APP_BME_LIGHT_TASK_ENABLED
     osThreadDef(SensorsBme680, SensorsBme680Task, osPriorityBelowNormal, 0U, 768U);
     SensorsBme680Handle = osThreadCreate(osThread(SensorsBme680), NULL);
+#endif
 
-    if(defaultTaskHandle == NULL || UserInterfaceHandle == NULL ||
-       SensorsHandle == NULL || SensorsBme680Handle == NULL)
+    if(defaultTaskHandle == NULL
+#if APP_LCD_ENABLED
+       || UserInterfaceHandle == NULL
+#endif
+#if APP_SENSORS_TASK_ENABLED
+       || SensorsHandle == NULL
+#endif
+#if APP_BME_LIGHT_TASK_ENABLED
+       || SensorsBme680Handle == NULL
+#endif
+       )
     {
         Error_Handler();
     }

@@ -1,5 +1,8 @@
 function(add_st_target_properties target_name)
+    string(TOLOWER "${AQS_MCU}" mcu_lower)
+    set(linker_script "${CMAKE_CURRENT_SOURCE_DIR}/${AQS_MCU}ZGTX_FLASH.ld")
     set(app_sources
+        Core/Src/app_hardware.c
         Core/Src/bosch_sensor.c
         Core/Src/freertos.c
         Core/Src/honeywell_sensor.c
@@ -45,7 +48,7 @@ function(add_st_target_properties target_name)
         Core/Src/system_stm32l4xx.c
         Core/Src/tim.c
         Core/Src/usart.c
-        Core/Startup/startup_stm32l476zgtx.s
+        Core/Startup/startup_${mcu_lower}zgtx.s
         Middlewares/ST/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_keybd.c
         Middlewares/ST/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_mouse.c
         Middlewares/ST/STM32_USB_Host_Library/Class/HID/Src/usbh_hid_parser.c
@@ -101,9 +104,21 @@ function(add_st_target_properties target_name)
 
     target_compile_definitions(${target_name} PRIVATE
         USE_HAL_DRIVER
-        STM32L476xx
+        ${AQS_MCU}xx
         USE_FULL_LL_DRIVER
         $<$<CONFIG:Debug>:DEBUG>)
+
+    if(AQS_I2C_ONLY)
+        target_compile_definitions(${target_name} PRIVATE
+            APP_CONFIG_IGNORE_LOCAL APP_HARDWARE_ENABLED=0
+            APP_VEML6070_ENABLED=1 APP_TCS34725_ENABLED=1 APP_SCD30_ENABLED=1
+            APP_WIFI_ENABLED=0
+            APP_SCD30_RECOVERY_ENABLED=1
+            APP_I2C1_INTERNAL_PULLUPS=1 APP_I2C1_TIMING=0x3090F9F9U)
+    elseif(NOT AQS_HARDWARE_ENABLED)
+        target_compile_definitions(${target_name} PRIVATE
+            APP_CONFIG_IGNORE_LOCAL APP_HARDWARE_ENABLED=0 APP_WIFI_ENABLED=0)
+    endif()
 
     # Compile-only Wi-Fi configuration. The default build leaves APP_WIFI_ENABLED
     # at 0, so without this the whole ESP32 code path is never compiled by CI.
@@ -159,14 +174,14 @@ function(add_st_target_properties target_name)
         --specs=nosys.specs
         -Wl,--gc-sections
         -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${target_name}.map
-        -T${CMAKE_CURRENT_SOURCE_DIR}/STM32L476ZGTX_FLASH.ld)
+        -T${linker_script})
 
     target_link_libraries(${target_name} PRIVATE m)
 
     set_target_properties(${target_name} PROPERTIES
         OUTPUT_NAME AirQualitySensors
         SUFFIX .elf
-        LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/STM32L476ZGTX_FLASH.ld")
+        LINK_DEPENDS "${linker_script}")
 
     add_custom_command(TARGET ${target_name} POST_BUILD
         COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${target_name}>

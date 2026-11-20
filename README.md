@@ -51,6 +51,59 @@ For the optimized build, replace `debug` with `release`. Each build produces the
 
 The repository also remains importable in STM32CubeIDE. CMake is the reproducible build used by CI and is the recommended command-line path.
 
+## Nucleo with only the I2C sensors
+
+The `nucleo-i2c` preset targets **NUCLEO-L496ZG (STM32L496ZG)** with only
+TCS34725, VEML6070, and SCD30 enabled on I2C1: **PB8 = SCL, PB9 = SDA**, common GND,
+and sensor power from 3V3. External I2C pull-ups to 3V3 are required (often
+already fitted on sensor breakout boards).
+The bring-up preset sets `APP_I2C1_INTERNAL_PULLUPS=1` as a weak fallback
+and `APP_I2C1_TIMING=0x3090F9F9U` (about 20 kHz with the 40 MHz peripheral
+clock). This combination was needed for both attached sensors to communicate
+on the tested wiring. Use external pull-ups for reliable bus rise times.
+The SCD30 uses a 2 s measurement interval and a 250 ms transfer timeout to
+allow its specified clock stretching, with a settling delay after start.
+The preset enables `APP_SCD30_RECOVERY_ENABLED`: initialization soft-resets
+the sensor, waits 2 s, reads its firmware version, stops measurement, sets and
+reads back the interval, then restarts. If no sample arrives for 30 s, polling
+reports an error so the existing five-failure retry policy reinitializes it.
+`scd30_diagnostics` exposes reset/sample counters and command results in GDB.
+This sequence restored measurements on the connected SCD30 without changing
+its calibration settings.
+
+```powershell
+cmake --preset nucleo-i2c
+cmake --build --preset nucleo-i2c --parallel
+# Finds the installed STM32CubeIDE tools, builds, flashes, and opens GDB:
+./scripts/Debug-Nucleo.ps1
+```
+
+In GDB, use `continue`, then Ctrl+C and `sensors` to inspect the measurement
+snapshot, I2C error code, and GPIOB input register. `valid_mask = 0x19` means
+SCD30, UV, and color have produced data. UV/color `timestamp_ms[3]` and `[4]`
+advance about once a second; SCD30 `timestamp_ms[0]` advances about every two
+seconds. PB8/PB9 should both read high when the bus is idle
+(`GPIOB.IDR & 0x300` equals `0x300`). UV raw zero can be normal indoors; validity
+and advancing timestamps distinguish a successful read from a missing device.
+Use `./scripts/Debug-Nucleo.ps1 -AttachOnly` to inspect the running firmware
+without downloading it again.
+
+To disable all optional hardware, build the `hardware-off` preset, or set
+`APP_HARDWARE_ENABLED` to `0` in `Core/Inc/app_config.local.h`. Individually
+enable attached devices with `APP_TCS34725_ENABLED=1`,
+`APP_VEML6070_ENABLED=1`, and `APP_SCD30_ENABLED=1`. The I2C-only preset supplies
+these settings and ignores local overrides. LCD, BME680, HPMA, USB host, host UART,
+ADC, I2C3, Wi-Fi, and the watchdog stay off. The scheduler, time base, SWD,
+and two onboard indicator LEDs remain available. Disabled tasks are not
+registered with the task-health watchdog.
+
+The original `debug`/`release` presets and `.ioc` remain for the original
+STM32L476ZG design. `AQS_MCU=STM32L496` selects the separate L496 startup,
+device header, and linker layout (1 MB flash, 256 KB SRAM1, 64 KB SRAM2).
+`App_HardwareInit()` owns selectable peripheral/pin startup; protected user
+blocks bypass CubeMX's full initialization list. After CubeMX regeneration,
+keep `app_hardware.c` in the project and use the matching CMake preset.
+
 ## Backend
 
 Measurements are received by [WindowsAddon](https://github.com/kurta999/WindowsAddon), a Windows tray toolbox that also serves as the sensor backend for this firmware. It runs the TCP server the device reports to, stores the average of the measurements in a configured integration period in an SQLite database, and generates graphs from recent measurements plus daily and weekly averages. The graphs are served at `your_local_ip:2005/graphs` and can be viewed from any device on the network, including a phone.

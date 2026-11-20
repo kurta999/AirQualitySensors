@@ -31,6 +31,22 @@
       }
     },
     {
+      "name": "nucleo-i2c",
+      "inherits": "debug",
+      "cacheVariables": {
+        "AQS_MCU": "STM32L496",
+        "AQS_I2C_ONLY": "ON"
+      }
+    },
+    {
+      "name": "hardware-off",
+      "inherits": "debug",
+      "cacheVariables": {
+        "AQS_MCU": "STM32L496",
+        "AQS_HARDWARE_ENABLED": "OFF"
+      }
+    },
+    {
       "name": "release",
       "inherits": "default",
       "cacheVariables": {
@@ -49,6 +65,14 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "nucleo-i2c",
+      "configurePreset": "nucleo-i2c"
+    },
+    {
+      "name": "hardware-off",
+      "configurePreset": "hardware-off"
+    },
     {
       "name": "debug",
       "configurePreset": "debug"

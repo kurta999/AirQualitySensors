@@ -32,6 +32,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "app_config.h"
+#include "app_hardware.h"
 #include "user_interface.h"
 #include "wifi.h"
 #include "usart_driver.h"
@@ -99,7 +101,10 @@ int main(void)
   PeriphCommonClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  App_HardwareInit();
+  /* Keep CubeMX's complete init list for regeneration; the selectable
+   * application init above owns peripheral startup. */
+#if 0
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -117,12 +122,17 @@ int main(void)
   MX_I2C3_Init();
   MX_UART4_Init();
   /* USER CODE BEGIN 2 */
+#endif
+#if APP_WATCHDOG_ENABLED
 #ifdef DEBUG
   __HAL_DBGMCU_FREEZE_IWDG();
 #else
   __HAL_DBGMCU_UNFREEZE_IWDG();
 #endif
+#endif
+#if APP_LCD_ENABLED
   UI_Init();
+#endif
 #if APP_WIFI_ENABLED
   UsartDriver_Init();
   if(Wifi_Init() != HAL_OK)
@@ -135,18 +145,22 @@ int main(void)
   }
 #endif
 
+#if APP_HPMA_ENABLED
   if(Honeywell_Init() != HAL_OK)
   {
     /* The particle sensor is optional. It stays marked invalid and
        Honeywell_Poll(), called from SensorsTask, keeps retrying. */
     Honeywell_RequestRestart();
   }
+#endif
 
   for(int i = 0; i != 10; i++)
   {
     /* This startup blink runs before the scheduler, so nothing else is
        refreshing the ~4 s watchdog while it does. */
+#if APP_WATCHDOG_ENABLED
     (void)HAL_IWDG_Refresh(&hiwdg);
+#endif
     HAL_Delay(100);
     HAL_GPIO_WritePin(ULED_2_GPIO_Port, ULED_2_Pin, 1);
     HAL_Delay(100);

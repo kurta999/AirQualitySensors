@@ -21,7 +21,7 @@
 #include "i2c.h"
 
 /* USER CODE BEGIN 0 */
-
+#include "app_config.h"
 /* USER CODE END 0 */
 
 I2C_HandleTypeDef hi2c1;
@@ -66,7 +66,13 @@ void MX_I2C1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
-
+#if APP_I2C1_TIMING != 0x00909BEBU
+  /* Software profile override; the .ioc retains the original bus timing. */
+  __HAL_I2C_DISABLE(&hi2c1);
+  hi2c1.Init.Timing = APP_I2C1_TIMING;
+  WRITE_REG(hi2c1.Instance->TIMINGR, hi2c1.Init.Timing);
+  __HAL_I2C_ENABLE(&hi2c1);
+#endif
   /* USER CODE END I2C1_Init 2 */
 
 }
@@ -149,7 +155,12 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     /* I2C1 clock enable */
     __HAL_RCC_I2C1_CLK_ENABLE();
   /* USER CODE BEGIN I2C1_MspInit 1 */
-
+#if APP_I2C1_INTERNAL_PULLUPS
+    /* Bring-up fallback for short Nucleo wires. External pull-ups are
+     * still preferred for the bus rise-time specification. */
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+#endif
   /* USER CODE END I2C1_MspInit 1 */
   }
   else if(i2cHandle->Instance==I2C3)

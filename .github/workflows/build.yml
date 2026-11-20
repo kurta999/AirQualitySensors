@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [debug, release]
+        preset: [debug, release, wifi-check, nucleo-i2c, hardware-off]
     steps:
       - uses: actions/checkout@v6
       - name: Install ARM toolchain
